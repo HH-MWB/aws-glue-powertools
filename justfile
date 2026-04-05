@@ -15,5 +15,4 @@ lint:
 
 # Run tests and show coverage report.
 test:
-    uv run coverage run -m behave --format null
-    uv run coverage report
+    sh scripts/run_behave_in_glue_docker.sh

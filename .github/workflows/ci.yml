@@ -27,19 +27,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Install development dependencies
-        run: uv sync --group dev
-
-      - name: Run Behave with coverage
-        run: uv run coverage run -m behave --format null
-
-      - name: Report coverage
-        run: uv run coverage report
+      - name: Run Behave in AWS Glue Docker image
+        run: sh scripts/run_behave_in_glue_docker.sh
 
   build:
     name: Build
