@@ -32,14 +32,19 @@ skip_covered = false
 fail_under = 100
 
 [tool.bandit]
-exclude_dirs = [".venv", "build", "dist"]
+exclude_dirs = [
+    ".venv",
+    "build",
+    "dist",
+    "features",
+]
 
 [tool.bandit.try_except_pass]
 check_typed_exception = true
 
 [tool.mypy]
 python_version = "3.11"
-mypy_path = ["src"]
+mypy_path = ["src", "stubs"]
 explicit_package_bases = true
 strict = true
 disallow_any_generics = true
@@ -88,6 +93,14 @@ select = ["ALL"]
 ignore = [
     "D203", # Incompatible with D211 (no-blank-line-before-class)
     "D213", # Incompatible with D212 (multi-line-summary-first-line)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"features/**" = [
+    "S101", # Behave steps: assert is idiomatic for "then" checks
+]
+"stubs/**" = [
+    "N802", # Stubs mirror upstream Glue names (e.g. getResolvedOptions)
 ]
 
 [tool.ruff.lint.mccabe]
