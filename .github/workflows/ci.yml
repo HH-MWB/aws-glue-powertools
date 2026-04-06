@@ -1,0 +1,66 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Run pre-commit on all files
+        uses: pre-commit/action@v3.0.1
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install just
+        uses: extractions/setup-just@v4
+
+      - name: Cache AWS Glue Docker image
+        id: glue-image
+        uses: actions/cache@v5
+        with:
+          path: /tmp/glue-image.tar
+          key: docker-glue-libs-5
+
+      - name: Load cached image
+        if: steps.glue-image.outputs.cache-hit == 'true'
+        run: docker load -i /tmp/glue-image.tar
+
+      - name: Pull and save image
+        if: steps.glue-image.outputs.cache-hit != 'true'
+        run: |
+          docker pull public.ecr.aws/glue/aws-glue-libs:5
+          docker save public.ecr.aws/glue/aws-glue-libs:5 -o /tmp/glue-image.tar
+
+      - name: Run Behave in AWS Glue Docker image
+        run: just test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Build distribution artifacts
+        run: uv build
