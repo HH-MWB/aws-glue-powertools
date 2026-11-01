@@ -7,24 +7,25 @@ Feature: Automatic Glue batch job lifecycle
     boilerplate
 
   Scenario: Decorator completes successfully
-    Given a script entrypoint decorated with BatchJob
+    Given an entrypoint decorated with BatchJob
     When the entrypoint is called
     Then the entrypoint completes without error
+    And the entrypoint receives job arguments and a SparkJobContext
     And the job is initialized
     And the job is committed
 
   Scenario: Decorator propagates exceptions
-    Given a script entrypoint decorated with BatchJob
+    Given an entrypoint decorated with BatchJob
     And the entrypoint raises a RuntimeError "entrypoint failed"
     When the entrypoint is called
     Then a RuntimeError "entrypoint failed" is propagated to the caller
     And the job is initialized
     And the job is not committed
 
-  Scenario: Context manager completes successfully
+  Scenario: Context manager unpacks arguments and context
     Given a BatchJob context manager
-    When the managed block is executed
-    Then the managed block completes without error
+    When the managed block is executed with unpacked arguments and context
+    Then the block receives job arguments and a SparkJobContext
     And the job is initialized
     And the job is committed
 
