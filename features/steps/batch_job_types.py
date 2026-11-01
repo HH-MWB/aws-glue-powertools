@@ -17,7 +17,7 @@ class BatchJobBehaveContext(Protocol):
     raise_in_body: bool
     execution_error: Exception | None
     expected_error_message: str
-    entrypoint: Callable[[], object] | None
+    entrypoint: Callable[[], None] | None
     spy_init: MagicMock | None
     spy_commit: MagicMock | None
     received_args: dict[str, str] | None

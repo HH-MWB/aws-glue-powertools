@@ -1,7 +1,7 @@
-# Default recipe: display list of available recipes.
+# Default recipe: display list of available recipes in logical order.
 [private]
 default:
-    @just --list
+    @just --list --unsorted
 
 # =============================================================================
 # Development & Quality
@@ -13,8 +13,8 @@ init:
     uv sync --group dev
     uv run pre-commit install
 
-# Run pre-commit hooks on all or specified files (e.g. `just lint --all-files`).
-lint *ARGS:
+# Run pre-commit hooks on all or specified files (e.g. `just lint` or `just lint ruff-check`).
+lint *ARGS="--all-files":
     uv run pre-commit run {{ARGS}}
 
 # =============================================================================
@@ -62,6 +62,8 @@ _run-in-glue MODE *ARGS:
         --entrypoint /bin/bash \
         "${GLUE_DOCKER_IMAGE}" \
         -l -s -- "{{MODE}}" {{ARGS}} <<'SCRIPT'
+    set -eu
+
     MODE="$1"; shift
 
     # Install the package in editable mode alongside test dependencies.

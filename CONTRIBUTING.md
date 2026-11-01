@@ -41,7 +41,7 @@ uv run pre-commit install
 5. Run the test suite inside the AWS Glue container and verify 100% test coverage:
 
    ```bash
-   just test
+   just coverage
    ```
 
 ## Code Style
@@ -66,7 +66,7 @@ test: add scenario for parameter resolution
 ## Pull Requests
 
 - Keep pull requests focused on a single concern.
-- Ensure `just lint` and `just test` pass before requesting review.
+- Ensure `just lint` and `just coverage` pass before requesting review.
 - Use a Conventional Commits title for your pull request.
 
 ## Code of Conduct

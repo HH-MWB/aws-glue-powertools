@@ -52,18 +52,21 @@ class BatchJob:
         _tb: TracebackType | None,
     ) -> None:
         """Commit job bookmarks only on successful completion."""
-        if exc_type is None and self._job is not None:
-            self._job.commit()
+        try:
+            if exc_type is None and self._job is not None:
+                self._job.commit()
+        finally:
+            self._job = None
 
     def __call__(
         self,
-        func: Callable[[dict[str, str], SparkJobContext], object],
-    ) -> Callable[[], object]:
+        func: Callable[[dict[str, str], SparkJobContext], None],
+    ) -> Callable[[], None]:
         """Wrap an entrypoint accepting (args, context)."""
 
         @functools.wraps(func)
-        def wrapper() -> object:
+        def wrapper() -> None:
             with self as (args, ctx):
-                return func(args, ctx)
+                func(args, ctx)
 
         return wrapper

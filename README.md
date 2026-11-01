@@ -10,7 +10,9 @@ Powertools for AWS Glue is a developer toolkit to implement best practices and i
 
 ## Installation
 
-TBD
+```bash
+pip install aws-glue-powertools
+```
 
 ## License
 
