@@ -52,8 +52,14 @@ jobs:
         run: uv audit
 
   test:
-    name: Test
+    name: Test (Glue ${{ matrix.glue-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        glue-version: ["5.0", "5.1", "6.0"]
+    env:
+      GLUE_VERSION: ${{ matrix.glue-version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -61,30 +67,18 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Cache AWS Glue Docker image
-        id: glue-image
-        uses: actions/cache@v4
-        with:
-          path: /tmp/glue-image.tar
-          key: docker-glue-libs-5
-
-      - name: Load cached image
-        if: steps.glue-image.outputs.cache-hit == 'true'
-        run: docker load -i /tmp/glue-image.tar
-
-      - name: Pull and save image
-        if: steps.glue-image.outputs.cache-hit != 'true'
-        run: |
-          docker pull public.ecr.aws/glue/aws-glue-libs:5
-          docker save public.ecr.aws/glue/aws-glue-libs:5 -o /tmp/glue-image.tar
-
       - name: Run Behave in AWS Glue Docker image
-        run: just test
+        run: |
+          chmod o+w .
+          just coverage
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: glue-${{ matrix.glue-version }}
+          name: glue-${{ matrix.glue-version }}
           fail_ci_if_error: false
 
   build:
