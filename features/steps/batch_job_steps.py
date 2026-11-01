@@ -16,6 +16,10 @@ from behave import given, then, when
 
 from aws_glue_powertools.job import BatchJob, SparkJobContext
 
+# =============================================================================
+# Helpers
+# =============================================================================
+
 
 @contextmanager
 def _capture_error(bdd_context: BatchJobBehaveContext) -> Iterator[None]:
@@ -35,6 +39,11 @@ def _reset_context(context: BatchJobBehaveContext) -> None:
     context.spy_commit = None
     context.received_args = None
     context.received_context = None
+
+
+# =============================================================================
+# Given Steps (Setup)
+# =============================================================================
 
 
 @given("an entrypoint decorated with BatchJob")
@@ -62,6 +71,11 @@ def step_entrypoint_raises(
     context.expected_error_message = message
 
 
+# =============================================================================
+# When Steps (Execution)
+# =============================================================================
+
+
 @when("the entrypoint is called")
 def step_call_entrypoint(context: BatchJobBehaveContext) -> None:
     """Invoke the entrypoint under real Glue/Spark."""
@@ -74,46 +88,33 @@ def step_call_entrypoint(context: BatchJobBehaveContext) -> None:
         context.spy_commit = mock_job.commit
 
 
-@given("a BatchJob context manager")
-def step_context_manager(context: BatchJobBehaveContext) -> None:
-    """Prepare state for a context-manager scenario."""
-    _reset_context(context)
+# =============================================================================
+# Then Steps (Assertions)
+# =============================================================================
+
+# --- Lifecycle: Initialization ---
 
 
-@given('the managed block raises a RuntimeError "{message}"')
-def step_managed_block_raises(
-    context: BatchJobBehaveContext,
-    message: str,
-) -> None:
-    """Configure the managed block to raise with the given message."""
-    context.raise_in_body = True
-    context.expected_error_message = message
+@then("the job is initialized")
+def step_job_initialized(context: BatchJobBehaveContext) -> None:
+    """Assert job.init() was called."""
+    assert context.spy_init is not None
+    context.spy_init.assert_called_once()
 
 
-@when(
-    "the managed block is executed with unpacked arguments and context",
-)
-def step_run_managed_block_unpacked(context: BatchJobBehaveContext) -> None:
-    """Run managed block unpacking args and context."""
-    with patch("aws_glue_powertools.job.Job") as mock_job_class:
-        mock_job = mock_job_class.return_value
-        with _capture_error(context), BatchJob() as (args, ctx):
-            context.received_args = args
-            context.received_context = ctx
-        context.spy_init = mock_job.init
-        context.spy_commit = mock_job.commit
+# --- Parameter & Context Injection ---
 
 
-@when("the managed block is executed")
-def step_run_managed_block(context: BatchJobBehaveContext) -> None:
-    """Run managed block expecting an exception."""
-    with patch("aws_glue_powertools.job.Job") as mock_job_class:
-        mock_job = mock_job_class.return_value
-        with _capture_error(context), BatchJob():
-            if context.raise_in_body:
-                raise RuntimeError(context.expected_error_message)
-        context.spy_init = mock_job.init
-        context.spy_commit = mock_job.commit
+@then("the entrypoint receives job arguments and a SparkJobContext")
+def step_receives_args_and_context(context: BatchJobBehaveContext) -> None:
+    """Assert args and SparkJobContext were received."""
+    assert context.received_args is not None
+    assert context.received_args.get("JOB_NAME") == "test"
+    assert isinstance(context.received_context, SparkJobContext)
+    assert isinstance(context.received_context.glue, GlueContext)
+
+
+# --- Execution Outcomes ---
 
 
 @then("the entrypoint completes without error")
@@ -139,21 +140,7 @@ def step_exception_propagated(
     )
 
 
-@then("the entrypoint receives job arguments and a SparkJobContext")
-@then("the block receives job arguments and a SparkJobContext")
-def step_receives_args_and_context(context: BatchJobBehaveContext) -> None:
-    """Assert args and SparkJobContext were received."""
-    assert context.received_args is not None
-    assert context.received_args.get("JOB_NAME") == "test"
-    assert isinstance(context.received_context, SparkJobContext)
-    assert isinstance(context.received_context.glue_context, GlueContext)
-
-
-@then("the job is initialized")
-def step_job_initialized(context: BatchJobBehaveContext) -> None:
-    """Assert job.init() was called."""
-    assert context.spy_init is not None
-    context.spy_init.assert_called_once()
+# --- Lifecycle: Commit / Teardown ---
 
 
 @then("the job is committed")
