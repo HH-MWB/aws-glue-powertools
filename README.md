@@ -6,11 +6,13 @@ Powertools for AWS Glue is a developer toolkit to implement best practices and i
 
 ## Features
 
-TBD
+- **`BatchJob`** — Automates Glue batch job lifecycle (`job.init()` and failure-safe `job.commit()`), initializes Spark and Glue contexts, and injects `(args, context)`.
 
 ## Installation
 
-TBD
+```bash
+pip install aws-glue-powertools
+```
 
 ## License
 

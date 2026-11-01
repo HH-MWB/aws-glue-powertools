@@ -1,0 +1,49 @@
+# Top-most EditorConfig file: https://EditorConfig.org
+root = true
+
+# ============================================================================
+# Global Defaults
+# ============================================================================
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 79
+
+# ============================================================================
+# Python & Typing Stubs (PEP 8 / Ruff)
+# ============================================================================
+
+[*.{py,pyi}]
+indent_size = 4
+
+# ============================================================================
+# BDD Features (Behave / Gherkin)
+# ============================================================================
+
+[*.feature]
+indent_size = 2
+
+# ============================================================================
+# Configuration & Workflows
+# ============================================================================
+
+# YAML (GitHub Actions, Pre-commit / yamllint)
+[*.{yml,yaml}]
+indent_size = 2
+
+# TOML (pyproject.toml, .taplo.toml / Taplo)
+[*.toml]
+indent_size = 2
+
+# ============================================================================
+# Documentation (Markdown)
+# ============================================================================
+
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
