@@ -9,12 +9,12 @@ init:
     uv sync --group dev
     uv run pre-commit install
 
-# Run pre-commit on staged files.
-lint:
-    uv run pre-commit run
+# Run pre-commit on all or specified files.
+lint *ARGS:
+    uv run pre-commit run {{ARGS}}
 
 # Run tests and show coverage report.
-test:
+test *ARGS:
     #!/bin/sh
     set -eu
     IMAGE="${GLUE_DOCKER_IMAGE:-public.ecr.aws/glue/aws-glue-libs:5}"
@@ -25,17 +25,24 @@ test:
         --workdir "${CONTAINER_WORKSPACE}" \
         --entrypoint /bin/bash \
         "${IMAGE}" \
-        -l <<'SCRIPT'
+        -l -s -- {{ARGS}} <<'SCRIPT'
     if ! python3 -m pip install --disable-pip-version-check --quiet --user \
-            -e . behave coverage[toml] >/tmp/pip-install.log 2>&1; then
+            -e . behave coverage >/tmp/pip-install.log 2>&1; then
         cat /tmp/pip-install.log
         exit 1
     fi
 
     export COVERAGE_FILE=/tmp/.coverage
-    python3 -m coverage run -m behave --format null 2>/tmp/test-stderr.log || {
+    python3 -m coverage run -m behave --format null "$@" 2>/tmp/test-stderr.log || {
         cat /tmp/test-stderr.log >&2
         exit 1
     }
     python3 -m coverage report
+    python3 -m coverage xml -o coverage.xml
     SCRIPT
+
+# Run tests with coverage report locally (outside container).
+coverage *ARGS:
+    uv run coverage run -m behave {{ARGS}}
+    uv run coverage report --show-missing
+    uv run coverage xml -o coverage.xml

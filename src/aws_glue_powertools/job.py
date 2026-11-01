@@ -27,6 +27,7 @@ class BatchJob:
 
     def __init__(self) -> None:
         """Create Spark/Glue contexts and the Glue ``Job`` instance."""
+        super().__init__()
         spark_context = SparkContext()
         glue_context = GlueContext(spark_context)
         self._job = Job(glue_context)

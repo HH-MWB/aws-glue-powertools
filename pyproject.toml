@@ -1,107 +1,215 @@
-[project]
-name = "aws-glue-powertools"
-version = "0.0.0"
-description = "Powertools for AWS Glue is a developer toolkit to implement best practices and increase developer velocity."
-readme = "README.md"
-authors = [
-    { name = "HH-MWB", email = "h.hong@mail.com" }
-]
-requires-python = ">=3.11,<3.12"
-dependencies = []
-
-[dependency-groups]
-dev = ["behave", "coverage[toml]", "pre-commit"]
+# ============================================================================
+# Build System & Package Metadata (PEP 517 / PEP 621 / PEP 735)
+# ============================================================================
 
 [build-system]
-requires = ["uv_build>=0.11.2,<0.12"]
+requires = ["uv_build>=0.11,<1"]
 build-backend = "uv_build"
 
-[tool.behave]
-paths = ["features"]
+[project]
+name = "aws-glue-powertools"
+version = "0.1.0"
+description = "Powertools for AWS Glue is a developer toolkit to implement best practices and increase developer velocity."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "HH-MWB", email = "h.hong@mail.com" }]
+keywords = [
+  "aws",
+  "aws-glue",
+  "data-engineering",
+  "dataops",
+  "etl",
+  "glue",
+  "powertools",
+  "pyspark",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
 
-[tool.codespell]
-skip = ".venv,uv.lock,*.svg"
+[project.urls]
+Repository = "https://github.com/HH-MWB/aws-glue-powertools"
+Issues = "https://github.com/HH-MWB/aws-glue-powertools/issues"
+Changelog = "https://github.com/HH-MWB/aws-glue-powertools/releases"
 
-[tool.coverage.run]
-source = ["src"]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = false
-fail_under = 100
-
-[tool.bandit]
-exclude_dirs = [
-    ".venv",
-    "build",
-    "dist",
-    "features",
+[dependency-groups]
+dev = [
+  { include-group = "test" },
+  "pre-commit",
+]
+test = [
+  "behave",
+  "coverage",
 ]
 
-[tool.bandit.try_except_pass]
-check_typed_exception = true
-
-[tool.mypy]
-python_version = "3.11"
-mypy_path = ["src", "stubs"]
-explicit_package_bases = true
-strict = true
-disallow_any_generics = true
-disallow_any_unimported = true
-disallow_any_explicit = true
-disallow_untyped_defs = true
-disallow_untyped_calls = true
-disallow_untyped_decorators = true
-strict_equality = true
-strict_equality_for_none = true
-warn_redundant_casts = true
-warn_return_any = true
-warn_unreachable = true
-warn_unused_ignores = true
-enable_error_code = [
-    "deprecated",
-    "exhaustive-match",
-    "explicit-override",
-    "ignore-without-code",
-    "possibly-undefined",
-    "redundant-expr",
-    "redundant-self",
-    "truthy-bool",
-    "unimported-reveal",
-    "unused-awaitable",
-]
-
-[[tool.mypy.overrides]]
-module = "features.steps.*"
-disallow_untyped_decorators = false
-
-[tool.pylint.main]
-source-roots = ["src"]
-ignore-paths = ["features/steps/"]
-
-[tool.pylint.format]
-max-line-length = 79
+# ============================================================================
+# Linting & Formatting
+# ============================================================================
 
 [tool.ruff]
 line-length = 79
+target-version = "py311"
 fix = true
 force-exclude = true
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "D203", # Incompatible with D211 (no-blank-line-before-class)
-    "D213", # Incompatible with D212 (multi-line-summary-first-line)
+  "CPY001", # No per-file copyright headers in this project
+  "D203",   # Incompatible with D211 (no-blank-line-before-class)
+  "D213",   # Incompatible with D212 (multi-line-summary-first-line)
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"features/**" = [
-    "S101", # Behave steps: assert is idiomatic for "then" checks
-]
-"stubs/**" = [
-    "N802", # Stubs mirror upstream Glue names (e.g. getResolvedOptions)
-]
+[tool.ruff.lint.flake8-type-checking]
+strict = true
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["aws_glue_powertools"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 5
+
+[tool.ruff.lint.per-file-ignores]
+"features/**" = [
+  "S101", # Behave steps: assert is idiomatic for "then" checks
+]
+"stubs/**" = [
+  "N802", # Stubs mirror upstream Glue names (e.g. getResolvedOptions)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pylint]
+max-statements = 10
+
+# ============================================================================
+# Type Checking
+# ============================================================================
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = ["src", "stubs"]
+explicit_package_bases = true
+strict = true
+extra_checks = true
+local_partial_types = true
+
+# Stricter checks beyond default strict mode
+disallow_any_explicit = true
+disallow_any_generics = true
+disallow_any_unimported = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+strict_equality = true
+strict_equality_for_none = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_ignores = true
+
+# Extended error codes
+enable_error_code = [
+  "deprecated",
+  "exhaustive-match",
+  "explicit-override",
+  "ignore-without-code",
+  "possibly-undefined",
+  "redundant-expr",
+  "redundant-self",
+  "truthy-bool",
+  "truthy-function",
+  "truthy-iterable",
+  "unimported-reveal",
+  "unused-awaitable",
+]
+
+# Output formatting
+pretty = true
+show_column_numbers = true
+show_error_codes = true
+show_error_context = true
+
+[[tool.mypy.overrides]]
+module = "features.steps.*"
+disallow_untyped_decorators = false
+
+[tool.pyright]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+
+include = ["src"]
+exclude = ["features"]
+stubPath = "stubs"
+
+typeCheckingMode = "strict"
+deprecateTypingAliases = true
+reportMissingModuleSource = "none"
+
+# Diagnostic rules elevated to error beyond strict mode
+reportCallInDefaultInitializer = "error"
+reportImplicitOverride = "error"
+reportImplicitStringConcatenation = "error"
+reportImportCycles = "error"
+reportMissingSuperCall = "error"
+reportPropertyTypeMismatch = "error"
+reportUninitializedInstanceVariable = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryContains = "error"
+reportUnnecessaryIsInstance = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnusedCallResult = "error"
+
+# ============================================================================
+# Security Analysis
+# ============================================================================
+
+[tool.bandit]
+exclude_dirs = ["features"]
+
+[tool.bandit.try_except_pass]
+check_typed_exception = true
+
+# ============================================================================
+# Spelling & Quality
+# ============================================================================
+
+[tool.codespell]
+check-filenames = true
+check-hidden = true
+skip = "uv.lock"
+
+# ============================================================================
+# Testing & Coverage
+# ============================================================================
+
+[tool.behave]
+paths = ["features"]
+show_snippets = false
+show_skipped = false
+
+[tool.coverage.run]
+source = ["aws_glue_powertools"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 100
