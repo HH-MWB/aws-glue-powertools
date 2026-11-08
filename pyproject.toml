@@ -151,8 +151,6 @@ disallow_untyped_decorators = false
 
 [tool.pyright]
 pythonVersion = "3.11"
-venvPath = "."
-venv = ".venv"
 
 include = ["src"]
 exclude = ["features"]
@@ -182,7 +180,7 @@ reportUnusedCallResult = "error"
 # ============================================================================
 
 [tool.bandit]
-exclude_dirs = ["features"]
+exclude_dirs = ["docs", "features"]
 
 [tool.bandit.try_except_pass]
 check_typed_exception = true
