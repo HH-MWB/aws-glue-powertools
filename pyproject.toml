@@ -88,6 +88,7 @@ max-complexity = 5
 ]
 "stubs/**" = [
   "N802", # Stubs mirror upstream Glue names (e.g. getResolvedOptions)
+  "N803", # Stubs mirror upstream AWS names (e.g. JobName, RunId)
 ]
 
 [tool.ruff.lint.pydocstyle]

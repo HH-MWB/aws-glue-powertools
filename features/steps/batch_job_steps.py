@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import sys
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -13,11 +15,21 @@ if TYPE_CHECKING:
 
 from awsglue.context import GlueContext
 from behave import given, then, when
+from botocore.exceptions import ClientError, EndpointConnectionError
 
-from aws_glue_powertools.job import BatchJob, SparkJobContext
+from aws_glue_powertools.exceptions import (
+    GlueConnectionError,
+    GluePermissionError,
+)
+from aws_glue_powertools.job import (
+    BatchJob,
+    SparkJobContext,
+    SparkJobInfo,
+    SparkJobRun,
+)
 
 # =============================================================================
-# Helpers
+# Helpers & Fixtures
 # =============================================================================
 
 
@@ -30,26 +42,45 @@ def _capture_error(bdd_context: BatchJobBehaveContext) -> Iterator[None]:
         bdd_context.execution_error = error
 
 
-def _reset_context(context: BatchJobBehaveContext) -> None:
-    context.raise_in_body = False
-    context.execution_error = None
-    context.expected_error_message = ""
-    context.entrypoint = None
-    context.spy_init = None
-    context.spy_commit = None
-    context.received_args = None
-    context.received_context = None
+def _create_mock_job_run_payload() -> dict[str, object]:
+    """Build mock AWS Glue GetJobRun API response payload."""
+    return {
+        "JobRun": {
+            "Attempt": 2,
+            "StartedOn": datetime.now(UTC) - timedelta(minutes=5),
+            "Timeout": 60,
+            "WorkerType": "G.2X",
+            "NumberOfWorkers": 10,
+            "GlueVersion": "5.0",
+            "ExecutionClass": "STANDARD",
+        },
+    }
+
+
+def _patch_glue_client(
+    context: BatchJobBehaveContext,
+    mock_client: MagicMock,
+    run_id: str = "jr_test",
+) -> None:
+    """Attach mock Glue boto3 client to context and start patcher."""
+    context.mock_glue_client = mock_client
+    patcher = patch(
+        "aws_glue_powertools.job.boto3.client",
+        return_value=mock_client,
+    )
+    context.mock_patcher = patcher
+    patcher.start()
+    context.tested_job_info = SparkJobInfo(name="test", run_id=run_id)
 
 
 # =============================================================================
-# Given Steps (Setup)
+# Given Steps (Arrange)
 # =============================================================================
 
 
 @given("an entrypoint decorated with BatchJob")
 def step_entrypoint_decorated(context: BatchJobBehaveContext) -> None:
     """Prepare an entrypoint decorated with BatchJob()."""
-    _reset_context(context)
 
     @BatchJob()
     def entrypoint(args: dict[str, str], ctx: SparkJobContext) -> None:
@@ -59,6 +90,50 @@ def step_entrypoint_decorated(context: BatchJobBehaveContext) -> None:
         context.received_context = ctx
 
     context.entrypoint = entrypoint
+
+
+@given("the AWS Glue service returns job run telemetry")
+def step_glue_service_returns_telemetry(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Configure mock Glue client with standard telemetry payload."""
+    mock_client = MagicMock()
+    mock_client.get_job_run.return_value = _create_mock_job_run_payload()
+    _patch_glue_client(context, mock_client)
+
+
+@given("the job is launched with CLI arguments")
+@given("the job is launched with CLI arguments:")
+def step_job_launched_with_cli_arguments(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Construct custom argv vector from step table rows."""
+    argv = ["script"]
+    if context.table:
+        for row in context.table:
+            argv.extend([row["argument"], row["value"]])
+    context.custom_argv = argv
+
+
+@given(
+    "a job run with {timeout:d} minutes timeout"
+    " that started {elapsed:d} minutes ago",
+)
+def step_job_run_with_timing(
+    context: BatchJobBehaveContext,
+    timeout: int,
+    elapsed: int,
+) -> None:
+    """Create a standalone SparkJobRun instance with timing values."""
+    now = datetime.now(UTC)
+    context.tested_job_run = SparkJobRun(
+        attempt=1,
+        started_on=now - timedelta(minutes=elapsed),
+        timeout=timeout,
+        worker_type="G.1X",
+        number_of_workers=2,
+        glue_version="5.0",
+    )
 
 
 @given('the entrypoint raises a RuntimeError "{message}"')
@@ -71,8 +146,34 @@ def step_entrypoint_raises(
     context.expected_error_message = message
 
 
+@given("the AWS Glue service is unreachable due to network timeout")
+def step_glue_service_network_timeout(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Configure mock Glue client to simulate network endpoint failure."""
+    mock_client = MagicMock()
+    mock_client.get_job_run.side_effect = EndpointConnectionError(
+        endpoint_url="https://glue.us-east-1.amazonaws.com",
+    )
+    _patch_glue_client(context, mock_client, run_id="jr_conn")
+
+
+@given('the AWS Glue service fails with ClientError "{code}"')
+def step_glue_service_client_error(
+    context: BatchJobBehaveContext,
+    code: str,
+) -> None:
+    """Configure mock Glue client to simulate arbitrary AWS ClientError."""
+    mock_client = MagicMock()
+    mock_client.get_job_run.side_effect = ClientError(
+        {"Error": {"Code": code, "Message": f"AWS error: {code}"}},
+        "GetJobRun",
+    )
+    _patch_glue_client(context, mock_client, run_id="jr_err")
+
+
 # =============================================================================
-# When Steps (Execution)
+# When Steps (Act)
 # =============================================================================
 
 
@@ -80,7 +181,11 @@ def step_entrypoint_raises(
 def step_call_entrypoint(context: BatchJobBehaveContext) -> None:
     """Invoke the entrypoint under real Glue/Spark."""
     assert context.entrypoint is not None
-    with patch("aws_glue_powertools.job.Job") as mock_job_class:
+    argv = context.custom_argv or sys.argv
+    with (
+        patch.object(sys, "argv", argv),
+        patch("aws_glue_powertools.job.Job") as mock_job_class,
+    ):
         with _capture_error(context):
             context.entrypoint()
         mock_job = mock_job_class.return_value
@@ -88,11 +193,29 @@ def step_call_entrypoint(context: BatchJobBehaveContext) -> None:
         context.spy_commit = mock_job.commit
 
 
+@when("accessing lazy job telemetry")
+def step_access_lazy_telemetry(context: BatchJobBehaveContext) -> None:
+    """Access lazy property on tested_job_info capturing any exception."""
+    assert context.tested_job_info is not None
+    with _capture_error(context):
+        _ = context.tested_job_info.run
+
+
+@when("calculating remaining execution time")
+def step_calculate_remaining_time(context: BatchJobBehaveContext) -> None:
+    """Calculate remaining execution time on tested_job_run."""
+    assert context.tested_job_run is not None
+    context.remaining_millis = (
+        context.tested_job_run.get_remaining_time_in_millis()
+    )
+
+
 # =============================================================================
-# Then Steps (Assertions)
+# Then Steps (Assert)
 # =============================================================================
 
-# --- Lifecycle: Initialization ---
+
+# --- Lifecycle ---
 
 
 @then("the job is initialized")
@@ -102,19 +225,121 @@ def step_job_initialized(context: BatchJobBehaveContext) -> None:
     context.spy_init.assert_called_once()
 
 
-# --- Parameter & Context Injection ---
+@then("the job is committed")
+def step_job_committed(context: BatchJobBehaveContext) -> None:
+    """Assert job.commit() was called."""
+    assert context.spy_commit is not None
+    context.spy_commit.assert_called_once()
 
 
-@then("the entrypoint receives job arguments and a SparkJobContext")
-def step_receives_args_and_context(context: BatchJobBehaveContext) -> None:
-    """Assert args and SparkJobContext were received."""
+@then("the job is not committed")
+def step_job_not_committed(context: BatchJobBehaveContext) -> None:
+    """Assert job.commit() was not called."""
+    assert context.spy_commit is not None
+    context.spy_commit.assert_not_called()
+
+
+# --- Context & Arguments ---
+
+
+@then("the entrypoint receives business arguments and a SparkJobContext")
+def step_receives_business_args_and_context(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert business args and SparkJobContext were received."""
     assert context.received_args is not None
-    assert context.received_args.get("JOB_NAME") == "test"
+    assert "JOB_NAME" not in context.received_args
+    assert "JOB_RUN_ID" not in context.received_args
     assert isinstance(context.received_context, SparkJobContext)
     assert isinstance(context.received_context.glue, GlueContext)
+    assert isinstance(context.received_context.job, SparkJobInfo)
 
 
-# --- Execution Outcomes ---
+@then("business arguments match exactly")
+@then("business arguments match exactly:")
+def step_business_args_match_exactly(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert business arguments match table key-value pairs exactly."""
+    assert context.received_args is not None
+    assert context.table is not None
+    expected = {row["key"]: row["value"] for row in context.table}
+    assert context.received_args == expected
+
+
+@then("the job metadata matches")
+@then("the job metadata matches:")
+def step_job_metadata_matches(context: BatchJobBehaveContext) -> None:
+    """Assert curated attributes on SparkJobInfo match table values."""
+    assert context.received_context is not None
+    assert context.table is not None
+    job = context.received_context.job
+    expected = {row["attribute"]: row["value"] for row in context.table}
+    assert job.name == expected["name"]
+    assert job.run_id == expected["run_id"]
+    assert job.bookmark_option == expected["bookmark_option"]
+    assert str(job.auto_scaling_enabled) == expected["auto_scaling_enabled"]
+    assert job.temp_dir == expected["temp_dir"]
+
+
+@then('datalake formats include "{fmt1}" and "{fmt2}"')
+def step_datalake_formats_include(
+    context: BatchJobBehaveContext,
+    fmt1: str,
+    fmt2: str,
+) -> None:
+    """Assert datalake formats tuple contains expected formats."""
+    assert context.received_context is not None
+    formats = context.received_context.job.datalake_formats
+    assert fmt1 in formats
+    assert fmt2 in formats
+
+
+# --- Telemetry ---
+
+
+@then("accessing job run telemetry calls get_job_run exactly once")
+def step_lazy_calls_once(context: BatchJobBehaveContext) -> None:
+    """Assert single API call across multiple lazy property accesses."""
+    assert context.received_context is not None
+    job = context.received_context.job
+    assert context.mock_glue_client is not None
+
+    _ = (
+        job.run.worker_type,
+        job.run.number_of_workers,
+        job.run.attempt,
+        job.run.started_on,
+        job.run.timeout,
+        job.run.glue_version,
+        job.run.execution_class,
+    )
+    context.mock_glue_client.get_job_run.assert_called_once()
+
+
+@then("job run telemetry matches")
+@then("job run telemetry matches:")
+def step_telemetry_matches(context: BatchJobBehaveContext) -> None:
+    """Assert runtime telemetry fields match table values."""
+    assert context.received_context is not None
+    assert context.table is not None
+    run = context.received_context.job.run
+    expected = {row["attribute"]: row["value"] for row in context.table}
+    assert run.worker_type == expected["worker_type"]
+    assert str(run.number_of_workers) == expected["number_of_workers"]
+    assert str(run.attempt) == expected["attempt"]
+    assert run.glue_version == expected["glue_version"]
+    assert run.execution_class == expected["execution_class"]
+
+
+@then("the remaining time in milliseconds is greater than zero")
+def step_remaining_time_positive(context: BatchJobBehaveContext) -> None:
+    """Assert remaining time calculation is positive."""
+    assert context.remaining_millis is not None
+    assert context.remaining_millis > 0
+
+
+# --- Exception & Error Assertions ---
 
 
 @then("the entrypoint completes without error")
@@ -140,18 +365,28 @@ def step_exception_propagated(
     )
 
 
-# --- Lifecycle: Commit / Teardown ---
+@then("a PermissionError is raised indicating missing IAM permissions")
+def step_permission_error_raised(context: BatchJobBehaveContext) -> None:
+    """Assert PermissionError was captured."""
+    assert isinstance(context.execution_error, GluePermissionError)
+    assert isinstance(context.execution_error, PermissionError)
+    assert "glue:GetJobRun" in str(context.execution_error)
 
 
-@then("the job is committed")
-def step_job_committed(context: BatchJobBehaveContext) -> None:
-    """Assert job.commit() was called."""
-    assert context.spy_commit is not None
-    context.spy_commit.assert_called_once()
+@then("a ConnectionError is raised indicating network or VPC failure")
+def step_connection_error_raised(context: BatchJobBehaveContext) -> None:
+    """Assert ConnectionError was captured."""
+    assert isinstance(context.execution_error, GlueConnectionError)
+    assert isinstance(context.execution_error, ConnectionError)
+    assert "VPC" in str(context.execution_error)
 
 
-@then("the job is not committed")
-def step_job_not_committed(context: BatchJobBehaveContext) -> None:
-    """Assert job.commit() was not called."""
-    assert context.spy_commit is not None
-    context.spy_commit.assert_not_called()
+@then('a ClientError "{code}" is propagated to the caller')
+def step_client_error_propagated(
+    context: BatchJobBehaveContext,
+    code: str,
+) -> None:
+    """Assert ClientError with expected code was propagated."""
+    assert isinstance(context.execution_error, ClientError)
+    error_dict = context.execution_error.response.get("Error", {})
+    assert error_dict.get("Code") == code
