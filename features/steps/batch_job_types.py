@@ -28,10 +28,11 @@ class BatchJobBehaveContext(Protocol):
     custom_argv: list[str] | None
     spy_init: MagicMock | None
     spy_commit: MagicMock | None
-    received_args: dict[str, str] | None
+    received_args: object | None
     received_context: SparkJobContext | None
     mock_glue_client: MagicMock | None
     mock_patcher: object | None
+    pydantic_patcher: object | None
     tested_job_info: SparkJobInfo | None
     tested_job_run: SparkJobRun | None
     remaining_millis: int | None

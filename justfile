@@ -68,7 +68,7 @@ _run-in-glue MODE *ARGS:
 
     # Install the package in editable mode alongside test dependencies.
     if ! python3 -m pip install --disable-pip-version-check --quiet --user \
-            -e . behave coverage >/tmp/pip-install.log 2>&1; then
+            -e ".[parser]" behave coverage >/tmp/pip-install.log 2>&1; then
         cat /tmp/pip-install.log
         exit 1
     fi

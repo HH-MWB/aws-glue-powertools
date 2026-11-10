@@ -7,6 +7,8 @@ __all__ = [
     "GlueConnectionError",
     "GluePermissionError",
     "GluePowertoolsError",
+    "JobArgumentValidationError",
+    "UnsupportedArgumentTypeError",
 ]
 
 
@@ -56,3 +58,42 @@ class GlueConnectionError(ConnectionError, GluePowertoolsError):
             f"job '{job_name}'. Ensure the VPC subnet has a route "
             "to a Glue VPC Endpoint or NAT Gateway.",
         )
+
+
+class JobArgumentValidationError(ValueError, GluePowertoolsError):
+    """Raised when business arguments fail validation against the target model.
+
+    Attributes:
+        target_type: Expected model or type class.
+    """
+
+    def __init__(self, target_type: object, error: Exception) -> None:
+        """Initialize JobArgumentValidationError.
+
+        Args:
+            target_type: Expected model or type class.
+            error: Underlying validation exception.
+        """
+        self.target_type = target_type
+        name = getattr(target_type, "__name__", str(target_type))
+        super().__init__(
+            f"Validation failed for argument model '{name}': {error}",
+        )
+
+
+class UnsupportedArgumentTypeError(TypeError, GluePowertoolsError):
+    """Raised when an entrypoint annotates an unsupported argument type.
+
+    Attributes:
+        target_type: The unsupported type annotation or model class.
+    """
+
+    def __init__(self, target_type: object) -> None:
+        """Initialize UnsupportedArgumentTypeError.
+
+        Args:
+            target_type: The unsupported type annotation or model class.
+        """
+        self.target_type = target_type
+        name = getattr(target_type, "__name__", str(target_type))
+        super().__init__(f"Unsupported argument type '{name}'.")

@@ -95,7 +95,7 @@ While CLI arguments provide static configuration, runtime telemetry is fetched o
 ## 4. Usage Example
 
 ```python
-from aws_glue_powertools import BatchJob, SparkJobContext
+from aws_glue_powertools.job import BatchJob, SparkJobContext
 
 
 @BatchJob()
@@ -122,3 +122,50 @@ def main(args: dict[str, str], ctx: SparkJobContext) -> None:
     df = spark.read.parquet(f"{source_bucket}/{target_date}/")
     df.write.parquet(f"{temp_dir}/output/")
 ```
+
+---
+
+## 5. Typed Argument Parsing (Pydantic)
+
+Instead of receiving raw strings in `dict[str, str]` and manually converting types, you can annotate your first argument with a **Pydantic** model (`BaseModel`). `@BatchJob` automatically parses, validates, and injects the model instance into your entrypoint.
+
+### Installation
+
+Install `aws-glue-powertools` with the optional `parser` extra:
+
+```bash
+pip install "aws-glue-powertools[parser]"
+```
+
+### Example
+
+```python
+from aws_glue_powertools.job import BatchJob, SparkJobContext
+from pydantic import BaseModel
+
+
+class JobParameters(BaseModel):
+    target_date: str
+    source_bucket: str
+    batch_size: int = 1000
+    dry_run: bool = False
+
+
+@BatchJob()
+def main(args: JobParameters, ctx: SparkJobContext) -> None:
+    # 'args' is now a fully validated JobParameters instance:
+    if args.dry_run:
+        print(f"Dry-run execution for batch size: {args.batch_size}")
+        return
+
+    spark = ctx.glue.spark_session
+    df = spark.read.parquet(f"{args.source_bucket}/{args.target_date}/")
+    df.limit(args.batch_size).write.parquet(f"{ctx.job.temp_dir}/output/")
+```
+
+### Fail-Fast Validation
+
+Argument validation executes **before** the AWS Glue lifecycle initializes (`glue_job.init()`) and before the Apache Spark session starts:
+* If input arguments fail Pydantic validation, a `JobArgumentValidationError` is raised immediately.
+* If an entrypoint specifies an unsupported argument type (e.g. primitives, non-Pydantic classes, or invalid dictionary types), an `UnsupportedArgumentTypeError` is raised.
+* No billable Spark worker execution or state commitment occurs.

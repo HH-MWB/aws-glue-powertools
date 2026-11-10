@@ -88,3 +88,50 @@ Feature: Automatic Glue batch job lifecycle
     Given the AWS Glue service fails with ClientError "ValidationException"
     When accessing lazy job telemetry
     Then a ClientError "ValidationException" is propagated to the caller
+
+  Scenario: Business arguments are automatically parsed into Pydantic model
+    Given an entrypoint decorated with BatchJob expecting a Pydantic model
+    And the job is launched with CLI arguments:
+      | argument     | value    |
+      | --JOB_NAME   | test     |
+      | --JOB_RUN_ID | jr_123   |
+      | --batch_id   | 42       |
+      | --dry_run    | true     |
+    When the entrypoint is called
+    Then the job is initialized
+    And the entrypoint receives a validated Pydantic model with batch_id 42 and dry_run true
+    And the job is committed
+
+  Scenario: Invalid business arguments raise JobArgumentValidationError before job initialization
+    Given an entrypoint decorated with BatchJob expecting a Pydantic model
+    And the job is launched with CLI arguments:
+      | argument     | value      |
+      | --JOB_NAME   | test       |
+      | --JOB_RUN_ID | jr_123     |
+      | --batch_id   | not_an_int |
+    When the entrypoint is called
+    Then a JobArgumentValidationError is propagated to the caller
+    And the job is not initialized
+    And the job is not committed
+
+  Scenario: Unsupported argument type annotation raises UnsupportedArgumentTypeError
+    Given an entrypoint decorated with BatchJob expecting an unsupported model type
+    When the entrypoint is called
+    Then an UnsupportedArgumentTypeError is propagated to the caller
+    And the job is not initialized
+    And the job is not committed
+
+  Scenario: Invalid dictionary type annotation raises UnsupportedArgumentTypeError
+    Given an entrypoint decorated with BatchJob expecting an invalid dictionary type
+    When the entrypoint is called
+    Then an UnsupportedArgumentTypeError is propagated to the caller
+    And the job is not initialized
+    And the job is not committed
+
+  Scenario: Model argument without Pydantic installed raises UnsupportedArgumentTypeError
+    Given Pydantic is not installed
+    And an entrypoint decorated with BatchJob expecting an unsupported model type
+    When the entrypoint is called
+    Then an UnsupportedArgumentTypeError is propagated to the caller
+    And the job is not initialized
+    And the job is not committed

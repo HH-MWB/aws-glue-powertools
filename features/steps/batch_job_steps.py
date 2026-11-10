@@ -16,10 +16,13 @@ if TYPE_CHECKING:
 from awsglue.context import GlueContext
 from behave import given, then, when
 from botocore.exceptions import ClientError, EndpointConnectionError
+from pydantic import BaseModel
 
 from aws_glue_powertools.exceptions import (
     GlueConnectionError,
     GluePermissionError,
+    JobArgumentValidationError,
+    UnsupportedArgumentTypeError,
 )
 from aws_glue_powertools.job import (
     BatchJob,
@@ -73,6 +76,15 @@ def _patch_glue_client(
     context.tested_job_info = SparkJobInfo(name="test", run_id=run_id)
 
 
+class _SampleModel(BaseModel):  # type: ignore[explicit-any]
+    batch_id: int
+    dry_run: bool = False
+
+
+class _UnsupportedClass:
+    pass
+
+
 # =============================================================================
 # Given Steps (Arrange)
 # =============================================================================
@@ -86,6 +98,62 @@ def step_entrypoint_decorated(context: BatchJobBehaveContext) -> None:
     def entrypoint(args: dict[str, str], ctx: SparkJobContext) -> None:
         if context.raise_in_body:
             raise RuntimeError(context.expected_error_message)
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given("an entrypoint decorated with BatchJob expecting a Pydantic model")
+def step_entrypoint_with_pydantic_model(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint expecting a Pydantic model."""
+
+    @BatchJob()
+    def entrypoint(args: _SampleModel, ctx: SparkJobContext) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given(
+    "an entrypoint decorated with BatchJob "
+    "expecting an unsupported model type",
+)
+def step_entrypoint_with_unsupported_model(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint expecting an unsupported model type."""
+
+    @BatchJob()
+    def entrypoint(args: _UnsupportedClass, ctx: SparkJobContext) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given("Pydantic is not installed")
+def step_pydantic_not_installed(context: BatchJobBehaveContext) -> None:
+    """Simulate environment where Pydantic is not installed."""
+    patcher = patch.dict("sys.modules", {"pydantic": None})
+    patcher.start()
+    context.pydantic_patcher = patcher
+
+
+@given(
+    "an entrypoint decorated with BatchJob "
+    "expecting an invalid dictionary type",
+)
+def step_entrypoint_with_invalid_dict(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint expecting an invalid dictionary type."""
+
+    @BatchJob()
+    def entrypoint(args: dict[str, int], ctx: SparkJobContext) -> None:
         context.received_args = args
         context.received_context = ctx
 
@@ -225,6 +293,13 @@ def step_job_initialized(context: BatchJobBehaveContext) -> None:
     context.spy_init.assert_called_once()
 
 
+@then("the job is not initialized")
+def step_job_not_initialized(context: BatchJobBehaveContext) -> None:
+    """Assert job.init() was not called."""
+    assert context.spy_init is not None
+    context.spy_init.assert_not_called()
+
+
 @then("the job is committed")
 def step_job_committed(context: BatchJobBehaveContext) -> None:
     """Assert job.commit() was called."""
@@ -247,12 +322,28 @@ def step_receives_business_args_and_context(
     context: BatchJobBehaveContext,
 ) -> None:
     """Assert business args and SparkJobContext were received."""
-    assert context.received_args is not None
+    assert isinstance(context.received_args, dict)
     assert "JOB_NAME" not in context.received_args
     assert "JOB_RUN_ID" not in context.received_args
     assert isinstance(context.received_context, SparkJobContext)
     assert isinstance(context.received_context.glue, GlueContext)
     assert isinstance(context.received_context.job, SparkJobInfo)
+
+
+@then(
+    "the entrypoint receives a validated Pydantic model "
+    "with batch_id {batch_id:d} and dry_run {dry_run}",
+)
+def step_receives_validated_pydantic_model(
+    context: BatchJobBehaveContext,
+    batch_id: int,
+    dry_run: str,
+) -> None:
+    """Assert entrypoint received validated Pydantic model."""
+    assert isinstance(context.received_args, _SampleModel)
+    assert context.received_args.batch_id == batch_id
+    expected_dry_run = dry_run.lower() == "true"
+    assert context.received_args.dry_run is expected_dry_run
 
 
 @then("business arguments match exactly")
@@ -261,7 +352,7 @@ def step_business_args_match_exactly(
     context: BatchJobBehaveContext,
 ) -> None:
     """Assert business arguments match table key-value pairs exactly."""
-    assert context.received_args is not None
+    assert isinstance(context.received_args, dict)
     assert context.table is not None
     expected = {row["key"]: row["value"] for row in context.table}
     assert context.received_args == expected
@@ -390,3 +481,19 @@ def step_client_error_propagated(
     assert isinstance(context.execution_error, ClientError)
     error_dict = context.execution_error.response.get("Error", {})
     assert error_dict.get("Code") == code
+
+
+@then("a JobArgumentValidationError is propagated to the caller")
+def step_arg_validation_error_propagated(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert JobArgumentValidationError reached caller."""
+    assert isinstance(context.execution_error, JobArgumentValidationError)
+
+
+@then("an UnsupportedArgumentTypeError is propagated to the caller")
+def step_unsupported_type_error_propagated(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert UnsupportedArgumentTypeError reached caller."""
+    assert isinstance(context.execution_error, UnsupportedArgumentTypeError)

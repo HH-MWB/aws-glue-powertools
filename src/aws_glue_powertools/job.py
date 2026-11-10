@@ -23,9 +23,13 @@ from aws_glue_powertools.exceptions import (
     GlueConnectionError,
     GluePermissionError,
 )
+from aws_glue_powertools.parser import parse_arguments
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import TypeVar
+
+    _ArgsT = TypeVar("_ArgsT")
 
 __all__ = [
     "BatchJob",
@@ -242,7 +246,7 @@ class BatchJob:
 
     def __call__(
         self,
-        entrypoint: Callable[[dict[str, str], SparkJobContext], None],
+        entrypoint: Callable[[_ArgsT, SparkJobContext], None],
     ) -> Callable[[], None]:
         """Wrap an entrypoint accepting (args, context)."""
 
@@ -251,7 +255,10 @@ class BatchJob:
             # 1. Resolve arguments from command-line options
             args, glue_args = resolve_arguments(sys.argv)
 
-            # 2. Build runtime context and curate job metadata
+            # 2. Parse and validate business payload
+            parsed_args = parse_arguments(entrypoint, args)
+
+            # 3. Build runtime context and curate job metadata
             ctx = SparkJobContext(
                 glue=GlueContext(SparkContext.getOrCreate()),
                 job=SparkJobInfo(
@@ -277,14 +284,14 @@ class BatchJob:
                 ),
             )
 
-            # 3. Initialize AWS Glue job lifecycle
+            # 4. Initialize AWS Glue job lifecycle
             glue_job = Job(ctx.glue)
             glue_job.init(ctx.job.name, glue_args)
 
-            # 4. Execute user entrypoint with business payload
-            entrypoint(args, ctx)
+            # 5. Execute user entrypoint with business payload
+            entrypoint(parsed_args, ctx)
 
-            # 5. Commit bookmarks and job state
+            # 6. Commit bookmarks and job state
             glue_job.commit()
 
         return wrapper

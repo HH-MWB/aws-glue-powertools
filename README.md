@@ -9,6 +9,7 @@ Powertools for AWS Glue is a developer toolkit to implement best practices and i
 - **`BatchJob`** — Automates Glue batch job lifecycle (`job.init()` and failure-safe `job.commit()`), initializes Spark and Glue contexts, and injects `(args, context)`.
 - **`SparkJobInfo`** — Curated runtime metadata, AWS Glue telemetry via `ctx.job.run` (attempts, workers, timing), and infrastructure paths.
 - **Clean Argument Separation** — Strictly separates business inputs in `args` from platform metadata in `ctx.job`. See [Job Parameters Reference](docs/job-parameters.md).
+- **Typed Argument Parsing** — Automatically validates and parses business CLI parameters into Pydantic models using entrypoint type hints.
 
 ## Installation
 

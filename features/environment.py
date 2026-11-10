@@ -27,6 +27,7 @@ _DEFAULT_SCENARIO_ATTRIBUTES: tuple[tuple[str, object], ...] = (
     ("received_context", None),
     ("mock_glue_client", None),
     ("mock_patcher", None),
+    ("pydantic_patcher", None),
     ("tested_job_info", None),
     ("tested_job_run", None),
     ("remaining_millis", None),
@@ -78,7 +79,7 @@ class _StderrCapture:
             self.saved_fd = None
             if dump:
                 self.captured.seek(0)
-                sys.stderr.buffer.write(self.captured.read())
+                sys.stderr.write(self.captured.read().decode(errors="replace"))
             self.captured.close()
             self.captured = None
 
@@ -101,12 +102,12 @@ def before_scenario(context: object, scenario: object) -> None:
 
 def after_scenario(context: object, scenario: object) -> None:
     """Tear down Spark, cleanup mock patches, and restore captured stderr."""
-    mock_patcher = getattr(context, "mock_patcher", None)
-    if mock_patcher is not None:
-        mock_patcher.stop()
-        context.mock_patcher = None  # type: ignore[attr-defined]
-    is_glue = "glue_job" in scenario.effective_tags  # type: ignore[attr-defined]
-    if is_glue:
+    for patcher_attr in ("mock_patcher", "pydantic_patcher"):
+        patcher = getattr(context, patcher_attr, None)
+        if patcher is not None:
+            patcher.stop()
+            setattr(context, patcher_attr, None)
+    if "glue_job" in scenario.effective_tags:  # type: ignore[attr-defined]
         SparkContext.getOrCreate().stop()
     is_failed = getattr(scenario, "status", None) == "failed"
     _stderr_capture.stop(dump=is_failed)

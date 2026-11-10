@@ -81,11 +81,13 @@ repos:
     rev: v1.1.414
     hooks:
       - id: pyright
+        additional_dependencies: ["pydantic>=2.0"]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.4.1
     hooks:
       - id: mypy
+        additional_dependencies: ["pydantic>=2.0"]
 
   # -------------------------------------------------------------------------
   # Security Analysis & SAST

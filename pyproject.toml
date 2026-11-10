@@ -39,6 +39,11 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+parser = [
+  "pydantic>=2.0",
+]
+
 [project.urls]
 Repository = "https://github.com/HH-MWB/aws-glue-powertools"
 Issues = "https://github.com/HH-MWB/aws-glue-powertools/issues"
@@ -51,7 +56,9 @@ dev = [
 ]
 test = [
   "behave",
+  "boto3>=1.43.126",
   "coverage",
+  "pydantic>=2.0",
 ]
 
 # ============================================================================
