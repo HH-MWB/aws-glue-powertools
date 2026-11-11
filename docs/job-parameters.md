@@ -125,11 +125,58 @@ def main(args: dict[str, str], ctx: SparkJobContext) -> None:
 
 ---
 
-## 5. Typed Argument Parsing (Pydantic)
+## 5. Typed Argument Parsing
 
-Instead of receiving raw strings in `dict[str, str]` and manually converting types, you can annotate your first argument with a **Pydantic** model (`BaseModel`). `@BatchJob` automatically parses, validates, and injects the model instance into your entrypoint.
+Instead of receiving raw strings in `dict[str, str]` and manually converting types, you can annotate your first argument with a standard Python `@dataclass` (zero external dependencies) or a **Pydantic** model (`BaseModel`). `@BatchJob` automatically parses, validates, and injects the model instance into your entrypoint.
 
-### Installation
+### Option A: Standard Library `@dataclass` (Zero Dependencies)
+
+Standard dataclasses work out of the box in Python 3.11+ without installing any extra packages:
+
+```python
+from dataclasses import dataclass, field
+from aws_glue_powertools.job import BatchJob, SparkJobContext
+
+
+@dataclass
+class JobParameters:
+    target_date: str
+    source_bucket: str
+    batch_size: int = 1000
+    threshold: float = 0.95
+    dry_run: bool = False
+    partitions: list[str] = field(default_factory=list)
+    optional_note: str | None = None
+
+
+@BatchJob()
+def main(args: JobParameters, ctx: SparkJobContext) -> None:
+    if args.dry_run:
+        print(f"Dry-run execution for batch size: {args.batch_size}")
+        return
+
+    spark = ctx.glue.spark_session
+    df = spark.read.parquet(f"{args.source_bucket}/{args.target_date}/")
+    df.limit(args.batch_size).write.parquet(f"{ctx.job.temp_dir}/output/")
+```
+
+#### Supported Basic Types in Dataclasses
+
+* **Scalars:** `str`, `int`, `float`, `bool`
+  * `bool` accepts `"True"`, `"true"` (`True`) and `"False"`, `"false"` (`False`) only.
+  * In accordance with Glue's parser behavior, values are never silently stripped with `.strip()`, preserving user input integrity.
+* **Collections:** `list`, `tuple`, `set`, `frozenset` (e.g. `list[int]`, `tuple[str, ...]`, `set[int]`, `frozenset[float]`, bare `list`, `tuple`, `set`, `frozenset`)
+  * Parsed from comma-separated CLI strings (e.g. `--partitions "part1,part2"` or `--partitions ""`).
+  * If an item type is specified (`str`, `int`, `float`), elements are cast to that type; bare collections default element types to `str`.
+* **Optionals & Defaults:** `T | None` / `Optional[T]`, field defaults (`= ...`), and `field(default_factory=...)`.
+
+---
+
+### Option B: Pydantic (`BaseModel`)
+
+For deep validation, regex constraints, and nested schema parsing, use Pydantic models.
+
+#### Installation
 
 Install `aws-glue-powertools` with the optional `parser` extra:
 
@@ -137,7 +184,7 @@ Install `aws-glue-powertools` with the optional `parser` extra:
 pip install "aws-glue-powertools[parser]"
 ```
 
-### Example
+#### Example
 
 ```python
 from aws_glue_powertools.job import BatchJob, SparkJobContext
@@ -163,9 +210,11 @@ def main(args: JobParameters, ctx: SparkJobContext) -> None:
     df.limit(args.batch_size).write.parquet(f"{ctx.job.temp_dir}/output/")
 ```
 
+---
+
 ### Fail-Fast Validation
 
 Argument validation executes **before** the AWS Glue lifecycle initializes (`glue_job.init()`) and before the Apache Spark session starts:
-* If input arguments fail Pydantic validation, a `JobArgumentValidationError` is raised immediately.
-* If an entrypoint specifies an unsupported argument type (e.g. primitives, non-Pydantic classes, or invalid dictionary types), an `UnsupportedArgumentTypeError` is raised.
+* If input arguments fail dataclass or Pydantic validation, a `JobArgumentValidationError` is raised immediately.
+* If an entrypoint specifies an unsupported argument type (e.g. primitives, unsupported field types, or invalid dictionary types), an `UnsupportedArgumentTypeError` is raised.
 * No billable Spark worker execution or state commitment occurs.

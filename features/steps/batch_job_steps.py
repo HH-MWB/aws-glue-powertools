@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -81,6 +82,47 @@ class _SampleModel(BaseModel):  # type: ignore[explicit-any]
     dry_run: bool = False
 
 
+@dataclass
+class _SampleDataclass:
+    batch_id: int
+    name: str
+    rate: float
+    dry_run: bool = False
+    tags: list[str] = field(default_factory=list)
+    scores: list[int] = field(default_factory=list)
+    items: list = field(default_factory=list)  # type: ignore[type-arg]
+    modes: tuple[str, ...] = field(default_factory=tuple)
+    raw_tuple: tuple = field(default_factory=tuple)  # type: ignore[type-arg]
+    unique_ids: set[int] = field(default_factory=set)
+    raw_set: set = field(default_factory=set)  # type: ignore[type-arg]
+    rates: frozenset[float] = field(default_factory=frozenset)
+    raw_frozenset: frozenset = (  # type: ignore[type-arg]
+        field(default_factory=frozenset)
+    )
+    optional_note: str | None = None
+    derived_field: str = field(init=False, default="computed")
+
+
+@dataclass
+class _DataclassWithUnsupportedField:
+    config: dict[str, object]
+
+
+@dataclass
+class _DataclassWithUnsupportedList:
+    flags: list[bool]
+
+
+@dataclass
+class _DataclassWithUnsupportedTuple:
+    coordinates: tuple[int, str]
+
+
+@dataclass
+class _DataclassWithUnion:
+    val: int | str | None = None
+
+
 class _UnsupportedClass:
     pass
 
@@ -112,6 +154,100 @@ def step_entrypoint_with_pydantic_model(
 
     @BatchJob()
     def entrypoint(args: _SampleModel, ctx: SparkJobContext) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given("an entrypoint decorated with BatchJob expecting a dataclass")
+def step_entrypoint_with_dataclass(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint expecting a dataclass model."""
+
+    @BatchJob()
+    def entrypoint(args: _SampleDataclass, ctx: SparkJobContext) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given(
+    "an entrypoint decorated with BatchJob "
+    "expecting a dataclass with unsupported field type",
+)
+def step_entrypoint_with_unsupported_dataclass_field(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint with unsupported dataclass field."""
+
+    @BatchJob()
+    def entrypoint(
+        args: _DataclassWithUnsupportedField,
+        ctx: SparkJobContext,
+    ) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given(
+    "an entrypoint decorated with BatchJob "
+    "expecting a dataclass with unsupported list type",
+)
+def step_entrypoint_with_unsupported_dataclass_list(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint with unsupported dataclass list type."""
+
+    @BatchJob()
+    def entrypoint(
+        args: _DataclassWithUnsupportedList,
+        ctx: SparkJobContext,
+    ) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given(
+    "an entrypoint decorated with BatchJob "
+    "expecting a dataclass with unsupported tuple type",
+)
+def step_entrypoint_with_unsupported_dataclass_tuple(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint with unsupported dataclass tuple type."""
+
+    @BatchJob()
+    def entrypoint(
+        args: _DataclassWithUnsupportedTuple,
+        ctx: SparkJobContext,
+    ) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+@given(
+    "an entrypoint decorated with BatchJob "
+    "expecting a dataclass with unsupported union type",
+)
+def step_entrypoint_with_unsupported_dataclass_union(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint with unsupported dataclass union type."""
+
+    @BatchJob()
+    def entrypoint(
+        args: _DataclassWithUnion,
+        ctx: SparkJobContext,
+    ) -> None:
         context.received_args = args
         context.received_context = ctx
 
@@ -344,6 +480,44 @@ def step_receives_validated_pydantic_model(
     assert context.received_args.batch_id == batch_id
     expected_dry_run = dry_run.lower() == "true"
     assert context.received_args.dry_run is expected_dry_run
+
+
+@then(
+    "the entrypoint receives a validated dataclass matching the CLI arguments",
+)
+def step_receives_validated_dataclass(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert entrypoint received validated dataclass with expected values."""
+    assert context.received_args == _SampleDataclass(
+        batch_id=42,
+        name="test",
+        rate=3.14,
+        dry_run=True,
+        tags=["a", " b"],
+        scores=[10, 20],
+        items=["x", "y"],
+        modes=("fast", "safe"),
+        raw_tuple=("x", "y"),
+        unique_ids={1, 2},
+        raw_set={"alpha", "beta"},
+        rates=frozenset({1.5, 2.5}),
+        raw_frozenset=frozenset({"apple", "banana"}),
+        optional_note=None,
+    )
+
+
+@then("the entrypoint receives a dataclass with resolved default values")
+def step_receives_dataclass_defaults(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert entrypoint received dataclass with defaults when omitted."""
+    assert context.received_args == _SampleDataclass(
+        batch_id=42,
+        name="test",
+        rate=1.0,
+        dry_run=False,
+    )
 
 
 @then("business arguments match exactly")
