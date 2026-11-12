@@ -25,7 +25,7 @@ from aws_glue_powertools.exceptions import (
     JobArgumentValidationError,
     UnsupportedArgumentTypeError,
 )
-from aws_glue_powertools.job import (
+from aws_glue_powertools.jobs.spark import (
     BatchJob,
     SparkJobContext,
     SparkJobInfo,
@@ -69,17 +69,15 @@ def _patch_glue_client(
     """Attach mock Glue boto3 client to context and start patcher."""
     context.mock_glue_client = mock_client
     patcher = patch(
-        "aws_glue_powertools.job.boto3.client",
+        "aws_glue_powertools.jobs.spark.boto3.client",
         return_value=mock_client,
     )
     context.mock_patcher = patcher
     patcher.start()
-    context.tested_job_info = SparkJobInfo(name="test", run_id=run_id)
-
-
-class _SampleModel(BaseModel):  # type: ignore[explicit-any]
-    batch_id: int
-    dry_run: bool = False
+    context.tested_job_context = SparkJobContext(
+        glue=MagicMock(spec=GlueContext),
+        job=SparkJobInfo(name="test", run_id=run_id),
+    )
 
 
 @dataclass
@@ -123,6 +121,11 @@ class _DataclassWithUnion:
     val: int | str | None = None
 
 
+class _SampleModel(BaseModel):  # type: ignore[explicit-any]
+    batch_id: int
+    dry_run: bool = False
+
+
 class _UnsupportedClass:
     pass
 
@@ -130,6 +133,9 @@ class _UnsupportedClass:
 # =============================================================================
 # Given Steps (Arrange)
 # =============================================================================
+
+
+# --- Entrypoints ---
 
 
 @given("an entrypoint decorated with BatchJob")
@@ -146,18 +152,14 @@ def step_entrypoint_decorated(context: BatchJobBehaveContext) -> None:
     context.entrypoint = entrypoint
 
 
-@given("an entrypoint decorated with BatchJob expecting a Pydantic model")
-def step_entrypoint_with_pydantic_model(
+@given('the entrypoint raises a RuntimeError "{message}"')
+def step_entrypoint_raises(
     context: BatchJobBehaveContext,
+    message: str,
 ) -> None:
-    """Prepare an entrypoint expecting a Pydantic model."""
-
-    @BatchJob()
-    def entrypoint(args: _SampleModel, ctx: SparkJobContext) -> None:
-        context.received_args = args
-        context.received_context = ctx
-
-    context.entrypoint = entrypoint
+    """Configure the entrypoint to raise with the given message."""
+    context.raise_in_body = True
+    context.expected_error_message = message
 
 
 @given("an entrypoint decorated with BatchJob expecting a dataclass")
@@ -254,29 +256,18 @@ def step_entrypoint_with_unsupported_dataclass_union(
     context.entrypoint = entrypoint
 
 
-@given(
-    "an entrypoint decorated with BatchJob "
-    "expecting an unsupported model type",
-)
-def step_entrypoint_with_unsupported_model(
+@given("an entrypoint decorated with BatchJob expecting a Pydantic model")
+def step_entrypoint_with_pydantic_model(
     context: BatchJobBehaveContext,
 ) -> None:
-    """Prepare an entrypoint expecting an unsupported model type."""
+    """Prepare an entrypoint expecting a Pydantic model."""
 
     @BatchJob()
-    def entrypoint(args: _UnsupportedClass, ctx: SparkJobContext) -> None:
+    def entrypoint(args: _SampleModel, ctx: SparkJobContext) -> None:
         context.received_args = args
         context.received_context = ctx
 
     context.entrypoint = entrypoint
-
-
-@given("Pydantic is not installed")
-def step_pydantic_not_installed(context: BatchJobBehaveContext) -> None:
-    """Simulate environment where Pydantic is not installed."""
-    patcher = patch.dict("sys.modules", {"pydantic": None})
-    patcher.start()
-    context.pydantic_patcher = patcher
 
 
 @given(
@@ -296,14 +287,24 @@ def step_entrypoint_with_invalid_dict(
     context.entrypoint = entrypoint
 
 
-@given("the AWS Glue service returns job run telemetry")
-def step_glue_service_returns_telemetry(
+@given(
+    "an entrypoint decorated with BatchJob "
+    "expecting an unsupported model type",
+)
+def step_entrypoint_with_unsupported_model(
     context: BatchJobBehaveContext,
 ) -> None:
-    """Configure mock Glue client with standard telemetry payload."""
-    mock_client = MagicMock()
-    mock_client.get_job_run.return_value = _create_mock_job_run_payload()
-    _patch_glue_client(context, mock_client)
+    """Prepare an entrypoint expecting an unsupported model type."""
+
+    @BatchJob()
+    def entrypoint(args: _UnsupportedClass, ctx: SparkJobContext) -> None:
+        context.received_args = args
+        context.received_context = ctx
+
+    context.entrypoint = entrypoint
+
+
+# --- CLI Arguments & Environment ---
 
 
 @given("the job is launched with CLI arguments")
@@ -317,6 +318,27 @@ def step_job_launched_with_cli_arguments(
         for row in context.table:
             argv.extend([row["argument"], row["value"]])
     context.custom_argv = argv
+
+
+@given("Pydantic is not installed")
+def step_pydantic_not_installed(context: BatchJobBehaveContext) -> None:
+    """Simulate environment where Pydantic is not installed."""
+    patcher = patch.dict("sys.modules", {"pydantic": None})
+    patcher.start()
+    context.pydantic_patcher = patcher
+
+
+# --- Telemetry & AWS Glue Mock ---
+
+
+@given("the AWS Glue service returns job run telemetry")
+def step_glue_service_returns_telemetry(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Configure mock Glue client with standard telemetry payload."""
+    mock_client = MagicMock()
+    mock_client.get_job_run.return_value = _create_mock_job_run_payload()
+    _patch_glue_client(context, mock_client)
 
 
 @given(
@@ -333,21 +355,11 @@ def step_job_run_with_timing(
     context.tested_job_run = SparkJobRun(
         attempt=1,
         started_on=now - timedelta(minutes=elapsed),
-        timeout=timeout,
+        timeout=timedelta(minutes=timeout),
         worker_type="G.1X",
         number_of_workers=2,
         glue_version="5.0",
     )
-
-
-@given('the entrypoint raises a RuntimeError "{message}"')
-def step_entrypoint_raises(
-    context: BatchJobBehaveContext,
-    message: str,
-) -> None:
-    """Configure the entrypoint to raise with the given message."""
-    context.raise_in_body = True
-    context.expected_error_message = message
 
 
 @given("the AWS Glue service is unreachable due to network timeout")
@@ -388,7 +400,7 @@ def step_call_entrypoint(context: BatchJobBehaveContext) -> None:
     argv = context.custom_argv or sys.argv
     with (
         patch.object(sys, "argv", argv),
-        patch("aws_glue_powertools.job.Job") as mock_job_class,
+        patch("aws_glue_powertools.jobs.spark.Job") as mock_job_class,
     ):
         with _capture_error(context):
             context.entrypoint()
@@ -399,19 +411,17 @@ def step_call_entrypoint(context: BatchJobBehaveContext) -> None:
 
 @when("accessing lazy job telemetry")
 def step_access_lazy_telemetry(context: BatchJobBehaveContext) -> None:
-    """Access lazy property on tested_job_info capturing any exception."""
-    assert context.tested_job_info is not None
+    """Access lazy property on tested_job_context capturing any exception."""
+    assert context.tested_job_context is not None
     with _capture_error(context):
-        _ = context.tested_job_info.run
+        _ = context.tested_job_context.run
 
 
 @when("calculating remaining execution time")
 def step_calculate_remaining_time(context: BatchJobBehaveContext) -> None:
     """Calculate remaining execution time on tested_job_run."""
     assert context.tested_job_run is not None
-    context.remaining_millis = (
-        context.tested_job_run.get_remaining_time_in_millis()
-    )
+    context.remaining_time = context.tested_job_run.get_remaining_time()
 
 
 # =============================================================================
@@ -466,60 +476,6 @@ def step_receives_business_args_and_context(
     assert isinstance(context.received_context.job, SparkJobInfo)
 
 
-@then(
-    "the entrypoint receives a validated Pydantic model "
-    "with batch_id {batch_id:d} and dry_run {dry_run}",
-)
-def step_receives_validated_pydantic_model(
-    context: BatchJobBehaveContext,
-    batch_id: int,
-    dry_run: str,
-) -> None:
-    """Assert entrypoint received validated Pydantic model."""
-    assert isinstance(context.received_args, _SampleModel)
-    assert context.received_args.batch_id == batch_id
-    expected_dry_run = dry_run.lower() == "true"
-    assert context.received_args.dry_run is expected_dry_run
-
-
-@then(
-    "the entrypoint receives a validated dataclass matching the CLI arguments",
-)
-def step_receives_validated_dataclass(
-    context: BatchJobBehaveContext,
-) -> None:
-    """Assert entrypoint received validated dataclass with expected values."""
-    assert context.received_args == _SampleDataclass(
-        batch_id=42,
-        name="test",
-        rate=3.14,
-        dry_run=True,
-        tags=["a", " b"],
-        scores=[10, 20],
-        items=["x", "y"],
-        modes=("fast", "safe"),
-        raw_tuple=("x", "y"),
-        unique_ids={1, 2},
-        raw_set={"alpha", "beta"},
-        rates=frozenset({1.5, 2.5}),
-        raw_frozenset=frozenset({"apple", "banana"}),
-        optional_note=None,
-    )
-
-
-@then("the entrypoint receives a dataclass with resolved default values")
-def step_receives_dataclass_defaults(
-    context: BatchJobBehaveContext,
-) -> None:
-    """Assert entrypoint received dataclass with defaults when omitted."""
-    assert context.received_args == _SampleDataclass(
-        batch_id=42,
-        name="test",
-        rate=1.0,
-        dry_run=False,
-    )
-
-
 @then("business arguments match exactly")
 @then("business arguments match exactly:")
 def step_business_args_match_exactly(
@@ -560,6 +516,60 @@ def step_datalake_formats_include(
     assert fmt2 in formats
 
 
+@then(
+    "the entrypoint receives a validated dataclass matching the CLI arguments",
+)
+def step_receives_validated_dataclass(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert entrypoint received validated dataclass with expected values."""
+    assert context.received_args == _SampleDataclass(
+        batch_id=42,
+        name="test",
+        rate=3.14,
+        dry_run=True,
+        tags=["a", " b"],
+        scores=[10, 20],
+        items=["x", "y"],
+        modes=("fast", "safe"),
+        raw_tuple=("x", "y"),
+        unique_ids={1, 2},
+        raw_set={"alpha", "beta"},
+        rates=frozenset({1.5, 2.5}),
+        raw_frozenset=frozenset({"apple", "banana"}),
+        optional_note=None,
+    )
+
+
+@then("the entrypoint receives a dataclass with resolved default values")
+def step_receives_dataclass_defaults(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Assert entrypoint received dataclass with defaults when omitted."""
+    assert context.received_args == _SampleDataclass(
+        batch_id=42,
+        name="test",
+        rate=1.0,
+        dry_run=False,
+    )
+
+
+@then(
+    "the entrypoint receives a validated Pydantic model "
+    "with batch_id {batch_id:d} and dry_run {dry_run}",
+)
+def step_receives_validated_pydantic_model(
+    context: BatchJobBehaveContext,
+    batch_id: int,
+    dry_run: str,
+) -> None:
+    """Assert entrypoint received validated Pydantic model."""
+    assert isinstance(context.received_args, _SampleModel)
+    assert context.received_args.batch_id == batch_id
+    expected_dry_run = dry_run.lower() == "true"
+    assert context.received_args.dry_run is expected_dry_run
+
+
 # --- Telemetry ---
 
 
@@ -567,17 +577,17 @@ def step_datalake_formats_include(
 def step_lazy_calls_once(context: BatchJobBehaveContext) -> None:
     """Assert single API call across multiple lazy property accesses."""
     assert context.received_context is not None
-    job = context.received_context.job
+    ctx = context.received_context
     assert context.mock_glue_client is not None
 
     _ = (
-        job.run.worker_type,
-        job.run.number_of_workers,
-        job.run.attempt,
-        job.run.started_on,
-        job.run.timeout,
-        job.run.glue_version,
-        job.run.execution_class,
+        ctx.run.worker_type,
+        ctx.run.number_of_workers,
+        ctx.run.attempt,
+        ctx.run.started_on,
+        ctx.run.timeout,
+        ctx.run.glue_version,
+        ctx.run.execution_class,
     )
     context.mock_glue_client.get_job_run.assert_called_once()
 
@@ -588,20 +598,30 @@ def step_telemetry_matches(context: BatchJobBehaveContext) -> None:
     """Assert runtime telemetry fields match table values."""
     assert context.received_context is not None
     assert context.table is not None
-    run = context.received_context.job.run
+    run = context.received_context.run
     expected = {row["attribute"]: row["value"] for row in context.table}
-    assert run.worker_type == expected["worker_type"]
-    assert str(run.number_of_workers) == expected["number_of_workers"]
-    assert str(run.attempt) == expected["attempt"]
-    assert run.glue_version == expected["glue_version"]
-    assert run.execution_class == expected["execution_class"]
+    actual = {
+        "worker_type": run.worker_type,
+        "number_of_workers": str(run.number_of_workers),
+        "attempt": str(run.attempt),
+        "timeout": str(run.timeout),
+        "glue_version": run.glue_version,
+        "execution_class": run.execution_class,
+    }
+    assert actual == expected
 
 
-@then("the remaining time in milliseconds is greater than zero")
+@then("the remaining time is greater than zero")
 def step_remaining_time_positive(context: BatchJobBehaveContext) -> None:
     """Assert remaining time calculation is positive."""
-    assert context.remaining_millis is not None
-    assert context.remaining_millis > 0
+    assert context.remaining_time is not None
+    assert context.remaining_time > timedelta(0)
+
+
+@then("the remaining time is zero")
+def step_remaining_time_zero(context: BatchJobBehaveContext) -> None:
+    """Assert remaining time calculation is clamped to zero."""
+    assert context.remaining_time == timedelta(0)
 
 
 # --- Exception & Error Assertions ---

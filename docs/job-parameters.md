@@ -4,8 +4,6 @@ In `aws-glue-powertools`, your job entrypoint receives two distinct arguments: `
 
 They follow a strict **Invariance Rule**: if an attribute belongs to `ctx`, it does not belong to `args` (`args ∩ ctx.job = ∅`).
 
----
-
 ## 1. Design Philosophy
 
 This architecture mirrors the separation between `event` and `context` in AWS Lambda:
@@ -16,7 +14,7 @@ This architecture mirrors the separation between `event` and `context` in AWS La
   Provides the initialized execution environment and structured platform metadata:
   * `ctx.glue` (`GlueContext`): Initialized AWS Glue and Apache Spark sessions.
   * `ctx.job` (`SparkJobInfo`): Curated job identity and static configuration from CLI arguments.
-  * `ctx.job.run` (`SparkJobRun`): Lazy-loaded execution telemetry from the AWS Glue service.
+  * `ctx.run` (`SparkJobRun`): Lazy-loaded execution telemetry from the AWS Glue service.
 
 ### Why are platform options filtered from `args`?
 
@@ -34,8 +32,6 @@ from awsglue.utils import getResolvedOptions
 
 extra_args = getResolvedOptions(sys.argv, ["spark-event-logs-path"])
 ```
-
----
 
 ## 2. CLI Options Reference Table
 
@@ -70,32 +66,28 @@ The table below catalogs all AWS Glue platform parameters injected via CLI argum
 | **`write-shuffle-files-to-s3`** | — | Offload Spark shuffle partitions to Amazon S3. |
 | **`write-shuffle-spills-to-s3`** | — | Offload Spark shuffle spills to Amazon S3. |
 
----
+## 3. Runtime Telemetry (`ctx.run`)
 
-## 3. Runtime Telemetry (`ctx.job.run`)
-
-While CLI arguments provide static configuration, runtime telemetry is fetched on-demand from the AWS Glue service (`glue:GetJobRun`) and exposed through `ctx.job.run`:
+While CLI arguments provide static configuration, runtime telemetry is fetched on-demand from the AWS Glue service (`glue:GetJobRun`) and exposed through `ctx.run`:
 
 | Attribute | Type | Description |
 | :--- | :--- | :--- |
-| `ctx.job.run.attempt` | `int` | Execution attempt number (1 for initial run, 2+ for retries). |
-| `ctx.job.run.started_on` | `datetime` | UTC timestamp when the job run started. |
-| `ctx.job.run.timeout` | `int` | Configured job timeout in minutes. |
-| `ctx.job.run.worker_type` | `str` | Worker type allocated by AWS (e.g., `'G.1X'`, `'G.2X'`). |
-| `ctx.job.run.number_of_workers` | `int` | Number of provisioned workers for this execution. |
-| `ctx.job.run.glue_version` | `str` | AWS Glue runtime version (e.g., `'5.0'`). |
-| `ctx.job.run.execution_class` | `str` | Execution class (`'STANDARD'` or `'FLEX'`). |
-| `ctx.job.run.get_remaining_time_in_millis()` | `int` | Calculated milliseconds remaining before job timeout. |
+| `ctx.run.attempt` | `int` | Execution attempt number (1 for initial run, 2+ for retries). |
+| `ctx.run.started_on` | `datetime` | UTC timestamp when the job run started. |
+| `ctx.run.timeout` | `timedelta` | Configured job timeout duration. |
+| `ctx.run.worker_type` | `str` | Worker type allocated by AWS (e.g., `'G.1X'`, `'G.2X'`). |
+| `ctx.run.number_of_workers` | `int` | Number of provisioned workers for this execution. |
+| `ctx.run.glue_version` | `str` | AWS Glue runtime version (e.g., `'5.0'`). |
+| `ctx.run.execution_class` | `str` | Execution class (`'STANDARD'` or `'FLEX'`). |
+| `ctx.run.get_remaining_time()` | `timedelta` | Remaining execution time before job timeout. |
 
 > [!TIP]
-> **Lazy-Loaded:** The AWS Glue API is only called when `ctx.job.run` is first accessed. If your code never reads telemetry, zero API calls and zero network requests are made.
-
----
+> **Lazy-Loaded:** The AWS Glue API is only called when `ctx.run` is first accessed. If your code only needs the run ID, read `ctx.job.run_id` directly — it comes from `--JOB_RUN_ID` with zero API calls and zero network requests.
 
 ## 4. Usage Example
 
 ```python
-from aws_glue_powertools.job import BatchJob, SparkJobContext
+from aws_glue_powertools.jobs.spark import BatchJob, SparkJobContext
 
 
 @BatchJob()
@@ -111,19 +103,17 @@ def main(args: dict[str, str], ctx: SparkJobContext) -> None:
     if "iceberg" in ctx.job.datalake_formats:
         print(f"Executing Iceberg ETL for {job_name}")
 
-    # 3. Access dynamic execution telemetry via 'ctx.job.run':
+    # 3. Access dynamic execution telemetry via 'ctx.run':
     print(
-        f"Allocated workers: {ctx.job.run.number_of_workers} ({ctx.job.run.worker_type})"
+        f"Allocated workers: {ctx.run.number_of_workers} ({ctx.run.worker_type})"
     )
-    print(f"Time remaining: {ctx.job.run.get_remaining_time_in_millis()}ms")
+    print(f"Time remaining: {ctx.run.get_remaining_time()}")
 
     # 4. Use Spark and Glue contexts directly:
     spark = ctx.glue.spark_session
     df = spark.read.parquet(f"{source_bucket}/{target_date}/")
     df.write.parquet(f"{temp_dir}/output/")
 ```
-
----
 
 ## 5. Typed Argument Parsing
 
@@ -135,7 +125,7 @@ Standard dataclasses work out of the box in Python 3.11+ without installing any 
 
 ```python
 from dataclasses import dataclass, field
-from aws_glue_powertools.job import BatchJob, SparkJobContext
+from aws_glue_powertools.jobs.spark import BatchJob, SparkJobContext
 
 
 @dataclass
@@ -170,8 +160,6 @@ def main(args: JobParameters, ctx: SparkJobContext) -> None:
   * If an item type is specified (`str`, `int`, `float`), elements are cast to that type; bare collections default element types to `str`.
 * **Optionals & Defaults:** `T | None` / `Optional[T]`, field defaults (`= ...`), and `field(default_factory=...)`.
 
----
-
 ### Option B: Pydantic (`BaseModel`)
 
 For deep validation, regex constraints, and nested schema parsing, use Pydantic models.
@@ -187,7 +175,7 @@ pip install "aws-glue-powertools[parser]"
 #### Example
 
 ```python
-from aws_glue_powertools.job import BatchJob, SparkJobContext
+from aws_glue_powertools.jobs.spark import BatchJob, SparkJobContext
 from pydantic import BaseModel
 
 
@@ -209,8 +197,6 @@ def main(args: JobParameters, ctx: SparkJobContext) -> None:
     df = spark.read.parquet(f"{args.source_bucket}/{args.target_date}/")
     df.limit(args.batch_size).write.parquet(f"{ctx.job.temp_dir}/output/")
 ```
-
----
 
 ### Fail-Fast Validation
 

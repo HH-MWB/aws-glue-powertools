@@ -1,4 +1,4 @@
-"""Argument parsing and type validation for Glue batch jobs."""
+"""Argument parsing and type validation for Glue jobs."""
 
 from __future__ import annotations
 
@@ -42,8 +42,10 @@ _SCALAR_PARSERS: dict[object, Callable[[str], object]] = {
     float: float,
     bool: _BOOL_MAP.__getitem__,
 }
-_COLLECTIONS: frozenset[type] = frozenset({list, tuple, set, frozenset})
-_ITEM_TYPES: frozenset[type] = frozenset({str, int, float})
+_SUPPORTED_COLLECTIONS: frozenset[type] = frozenset(
+    {list, tuple, set, frozenset},
+)
+_SUPPORTED_ITEM_TYPES: frozenset[type] = frozenset({str, int, float})
 _UNION_ORIGINS: tuple[object, ...] = (
     typing.Union,  # pyright: ignore[reportDeprecated]
     types.UnionType,
@@ -96,25 +98,25 @@ def _unwrap_optional(hint: object) -> object:
 
 
 def _collection_parser(
-    coll: type,
-    base: object,
+    origin: type,
+    hint: object,
 ) -> Callable[[str], object]:
     """Return string parser for collection or raise if unsupported."""
-    args = [a for a in typing.get_args(base) if a is not Ellipsis]
+    args = [a for a in typing.get_args(hint) if a is not Ellipsis]
 
     # Bare collections (e.g. list, set) default element type to str
     if not args:
-        return lambda raw: coll() if not raw else coll(raw.split(","))
+        return lambda raw: origin() if not raw else origin(raw.split(","))
 
     # Parameterized collections (e.g. list[int], tuple[str, ...])
-    if len(args) == 1 and args[0] in _ITEM_TYPES:
+    if len(args) == 1 and args[0] in _SUPPORTED_ITEM_TYPES:
         item = cast("Callable[[str], object]", args[0])
         return lambda raw: (
-            coll() if not raw else coll(item(x) for x in raw.split(","))
+            origin() if not raw else origin(item(x) for x in raw.split(","))
         )
 
     # Reject unsupported item types or heterogeneous collections
-    raise UnsupportedArgumentTypeError(base)
+    raise UnsupportedArgumentTypeError(hint)
 
 
 def _get_parser(hint: object) -> Callable[[str], object]:
@@ -127,25 +129,25 @@ def _get_parser(hint: object) -> Callable[[str], object]:
 
     # Check for supported collection types (e.g. list, tuple, set)
     origin = typing.get_origin(base) or base
-    if origin in _COLLECTIONS:
+    if origin in _SUPPORTED_COLLECTIONS:
         return _collection_parser(cast("type", origin), base)
 
     # Reject any other unsupported type (e.g. complex, custom class)
     raise UnsupportedArgumentTypeError(base)
 
 
-def _validate_dataclass(
+def _parse_dataclass(
     target: type[DataclassInstance],
     args: dict[str, str],
 ) -> object:
-    """Validate and instantiate a dataclass from business arguments."""
+    """Parse and validate a dataclass from business arguments."""
     hints = typing.get_type_hints(target)
 
     # Schema validation: resolve field parsers (fails fast if unsupported)
     parsers = {
-        f.name: _get_parser(hints.get(f.name, f.type))
-        for f in dataclasses.fields(target)
-        if f.init
+        field.name: _get_parser(hints.get(field.name, field.type))
+        for field in dataclasses.fields(target)
+        if field.init
     }
 
     # Argument parsing & instantiation: convert CLI values and construct model
@@ -170,11 +172,11 @@ def _is_pydantic_model(target: object) -> TypeGuard[type[BaseModel]]:
     return isinstance(target, type) and issubclass(target, BaseModel)
 
 
-def _validate_pydantic(
+def _parse_pydantic(
     target: type[BaseModel],
     args: dict[str, str],
 ) -> object:
-    """Validate raw arguments using model's model_validate method."""
+    """Parse and validate arguments using model's model_validate method."""
     from pydantic import ValidationError  # noqa: PLC0415
 
     try:
@@ -211,9 +213,9 @@ def parse_arguments(
         return cast("_ArgsT", args)
 
     if _is_dataclass(target):
-        return cast("_ArgsT", _validate_dataclass(target, args))
+        return cast("_ArgsT", _parse_dataclass(target, args))
 
     if _is_pydantic_model(target):
-        return cast("_ArgsT", _validate_pydantic(target, args))
+        return cast("_ArgsT", _parse_pydantic(target, args))
 
     raise UnsupportedArgumentTypeError(target)

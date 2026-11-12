@@ -28,9 +28,9 @@ _DEFAULT_SCENARIO_ATTRIBUTES: tuple[tuple[str, object], ...] = (
     ("mock_glue_client", None),
     ("mock_patcher", None),
     ("pydantic_patcher", None),
-    ("tested_job_info", None),
+    ("tested_job_context", None),
     ("tested_job_run", None),
-    ("remaining_millis", None),
+    ("remaining_time", None),
 )
 
 _DEFAULT_GLUE_ARGV: tuple[str, ...] = (

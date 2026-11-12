@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import timedelta
     from unittest.mock import MagicMock
 
     from behave.model import Table
 
-    from aws_glue_powertools.job import (
+    from aws_glue_powertools.jobs.spark import (
         SparkJobContext,
-        SparkJobInfo,
         SparkJobRun,
     )
 
@@ -33,6 +33,6 @@ class BatchJobBehaveContext(Protocol):
     mock_glue_client: MagicMock | None
     mock_patcher: object | None
     pydantic_patcher: object | None
-    tested_job_info: SparkJobInfo | None
+    tested_job_context: SparkJobContext | None
     tested_job_run: SparkJobRun | None
-    remaining_millis: int | None
+    remaining_time: timedelta | None
