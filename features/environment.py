@@ -16,20 +16,23 @@ from pyspark.context import SparkContext
 # =============================================================================
 
 _DEFAULT_SCENARIO_ATTRIBUTES: tuple[tuple[str, object], ...] = (
-    ("raise_in_body", False),
-    ("execution_error", None),
-    ("expected_error_message", ""),
+    # Behave harness and isolation
+    ("saved_argv", None),
+    # Arrange state
     ("entrypoint", None),
     ("custom_argv", None),
+    ("raise_in_body", False),
+    ("expected_error_message", ""),
+    ("telemetry_action", None),
+    ("mock_glue_client", None),
+    ("mock_patcher", None),
+    ("pydantic_patcher", None),
+    # Act and assert state
     ("spy_init", None),
     ("spy_commit", None),
     ("received_args", None),
     ("received_context", None),
-    ("mock_glue_client", None),
-    ("mock_patcher", None),
-    ("pydantic_patcher", None),
-    ("tested_job_context", None),
-    ("tested_job_run", None),
+    ("execution_error", None),
     ("remaining_time", None),
 )
 
@@ -86,28 +89,44 @@ class _StderrCapture:
 
 _stderr_capture = _StderrCapture()
 
-# =============================================================================
-# Behave Lifecycle Hooks
-# =============================================================================
 
-
-def before_scenario(context: object, scenario: object) -> None:
-    """Initialize scenario context attributes and argv before execution."""
-    for attr, val in _DEFAULT_SCENARIO_ATTRIBUTES:
-        setattr(context, attr, val)
-    if "glue_job" in scenario.effective_tags:  # type: ignore[attr-defined]
-        _stderr_capture.start()
-        sys.argv = list(_DEFAULT_GLUE_ARGV)
-
-
-def after_scenario(context: object, scenario: object) -> None:
-    """Tear down Spark, cleanup mock patches, and restore captured stderr."""
+def _stop_patchers(context: object) -> None:
+    """Stop and clear any active unittest mock patchers on context."""
     for patcher_attr in ("mock_patcher", "pydantic_patcher"):
         patcher = getattr(context, patcher_attr, None)
         if patcher is not None:
             patcher.stop()
             setattr(context, patcher_attr, None)
-    if "glue_job" in scenario.effective_tags:  # type: ignore[attr-defined]
+
+
+def _spark_was_initialized(context: object) -> bool:
+    """Return True if the scenario initialized a Glue/Spark job."""
+    spy_init = getattr(context, "spy_init", None)
+    call_count: object = getattr(spy_init, "call_count", 0)
+    return isinstance(call_count, int) and call_count > 0
+
+
+# =============================================================================
+# Behave Lifecycle Hooks
+# =============================================================================
+
+
+def before_scenario(context: object, _scenario: object) -> None:
+    """Initialize scenario context, isolate sys.argv, and capture stderr."""
+    for attr, val in _DEFAULT_SCENARIO_ATTRIBUTES:
+        setattr(context, attr, val)
+    context.saved_argv = list(sys.argv)  # type: ignore[attr-defined]
+    sys.argv = list(_DEFAULT_GLUE_ARGV)
+    _stderr_capture.start()
+
+
+def after_scenario(context: object, scenario: object) -> None:
+    """Restore sys.argv, stop patchers/Spark, and restore captured stderr."""
+    _stop_patchers(context)
+    saved_argv = getattr(context, "saved_argv", None)
+    if saved_argv is not None:
+        sys.argv = saved_argv
+    if _spark_was_initialized(context):
         SparkContext.getOrCreate().stop()
     is_failed = getattr(scenario, "status", None) == "failed"
     _stderr_capture.stop(dump=is_failed)

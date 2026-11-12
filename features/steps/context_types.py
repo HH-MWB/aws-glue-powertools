@@ -11,28 +11,30 @@ if TYPE_CHECKING:
 
     from behave.model import Table
 
-    from aws_glue_powertools.jobs.spark import (
-        SparkJobContext,
-        SparkJobRun,
-    )
+    from aws_glue_powertools.jobs.spark import SparkJobContext
 
 
 class BatchJobBehaveContext(Protocol):
     """Attributes set and read by batch job step definitions."""
 
+    # Behave harness and isolation
     table: Table | None
-    raise_in_body: bool
-    execution_error: Exception | None
-    expected_error_message: str
+    saved_argv: list[str] | None
+
+    # Arrange state
     entrypoint: Callable[[], None] | None
     custom_argv: list[str] | None
+    raise_in_body: bool
+    expected_error_message: str
+    telemetry_action: str | None
+    mock_glue_client: MagicMock | None
+    mock_patcher: object | None
+    pydantic_patcher: object | None
+
+    # Act and assert state
     spy_init: MagicMock | None
     spy_commit: MagicMock | None
     received_args: object | None
     received_context: SparkJobContext | None
-    mock_glue_client: MagicMock | None
-    mock_patcher: object | None
-    pydantic_patcher: object | None
-    tested_job_context: SparkJobContext | None
-    tested_job_run: SparkJobRun | None
+    execution_error: Exception | None
     remaining_time: timedelta | None
