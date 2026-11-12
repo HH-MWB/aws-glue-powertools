@@ -71,7 +71,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Run tests in AWS Glue container
         run: |
@@ -79,7 +79,7 @@ jobs:
           just coverage
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml

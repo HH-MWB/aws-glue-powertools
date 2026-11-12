@@ -166,10 +166,10 @@ For deep validation, regex constraints, and nested schema parsing, use Pydantic 
 
 #### Installation
 
-Install `aws-glue-powertools` with the optional `parser` extra:
+Install `aws-glue-powertools` with the optional `pydantic` extra:
 
 ```bash
-pip install "aws-glue-powertools[parser]"
+pip install "aws-glue-powertools[pydantic]"
 ```
 
 #### Example

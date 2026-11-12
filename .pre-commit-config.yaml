@@ -100,7 +100,7 @@ repos:
         additional_dependencies: ["bandit[toml]"]
 
   - repo: https://github.com/semgrep/pre-commit
-    rev: v1.184.0
+    rev: v1.185.0
     hooks:
       - id: semgrep
         args: ["--config", "p/python", "--error"]

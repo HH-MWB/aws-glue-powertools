@@ -113,7 +113,7 @@ Feature: Typed business argument parsing and validation
         | not_an_int | false      |
         | 42         | not_a_bool |
 
-  Rule: Pydantic models validate arguments when the optional parser package is installed
+  Rule: Pydantic models validate arguments when the optional pydantic extra is installed
 
     Scenario: Business arguments are parsed into a Pydantic model
       Given an entrypoint decorated with BatchJob expecting a Pydantic model
