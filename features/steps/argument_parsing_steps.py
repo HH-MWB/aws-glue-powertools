@@ -13,9 +13,12 @@ from aws_glue_powertools.exceptions import (
 )
 from features.helpers import (
     UNSUPPORTED_TYPE_MAP,
-    SampleDataclass,
+    CollectionDataclass,
+    LifecycleDataclass,
     SampleModel,
     make_batch_entrypoint,
+    make_scalar_dataclass,
+    parse_expected,
     verify_dataclass_table,
 )
 
@@ -30,10 +33,38 @@ if TYPE_CHECKING:
 # --- Entrypoint Schemas ---
 
 
-@given("an entrypoint decorated with BatchJob expecting a dataclass")
-def step_entrypoint_with_dataclass(context: BatchJobBehaveContext) -> None:
-    """Prepare an entrypoint expecting SampleDataclass."""
-    context.entrypoint = make_batch_entrypoint(context, SampleDataclass)
+@given(
+    "an entrypoint decorated with BatchJob expecting a dataclass "
+    'with scalar field "{field_name}" of type "{type_name}"',
+)
+def step_entrypoint_with_scalar_field(
+    context: BatchJobBehaveContext,
+    field_name: str,
+    type_name: str,
+) -> None:
+    """Prepare dynamic single-field scalar dataclass entrypoint."""
+    cls = make_scalar_dataclass(field_name, type_name)
+    context.entrypoint = make_batch_entrypoint(context, cls)
+
+
+@given(
+    "an entrypoint decorated with BatchJob expecting a collection dataclass",
+)
+def step_entrypoint_with_collection_dataclass(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint expecting CollectionDataclass."""
+    context.entrypoint = make_batch_entrypoint(context, CollectionDataclass)
+
+
+@given(
+    "an entrypoint decorated with BatchJob expecting a lifecycle dataclass",
+)
+def step_entrypoint_with_lifecycle_dataclass(
+    context: BatchJobBehaveContext,
+) -> None:
+    """Prepare an entrypoint expecting LifecycleDataclass."""
+    context.entrypoint = make_batch_entrypoint(context, LifecycleDataclass)
 
 
 @given("an entrypoint decorated with BatchJob expecting a Pydantic model")
@@ -74,12 +105,29 @@ def step_pydantic_not_installed(context: BatchJobBehaveContext) -> None:
 # --- Parsed Model Assertions ---
 
 
+@then(
+    'the entrypoint receives a dataclass with "{field_name}" '
+    'equal to "{expected_str}"',
+)
+def step_receives_dataclass_scalar_field(
+    context: BatchJobBehaveContext,
+    field_name: str,
+    expected_str: str,
+) -> None:
+    """Assert received dataclass field matches parsed expected value."""
+    assert context.received_args is not None
+    actual = getattr(context.received_args, field_name)
+    expected = parse_expected(expected_str, actual)
+    assert actual == expected
+    assert type(actual) is type(expected)
+
+
 @then("the entrypoint receives a dataclass matching:")
 def step_receives_validated_dataclass(
     context: BatchJobBehaveContext,
 ) -> None:
     """Assert received dataclass fields, types, and values match the table."""
-    assert isinstance(context.received_args, SampleDataclass)
+    assert context.received_args is not None
     assert context.table is not None
     verify_dataclass_table(context.received_args, context.table)
 

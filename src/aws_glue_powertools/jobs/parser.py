@@ -7,7 +7,9 @@ import inspect
 import types
 import typing
 from collections.abc import Mapping
+from datetime import date, datetime, time
 from typing import TYPE_CHECKING, TypeGuard, cast
+from uuid import UUID
 
 from aws_glue_powertools.exceptions import (
     JobArgumentValidationError,
@@ -41,11 +43,14 @@ _SCALAR_PARSERS: dict[object, Callable[[str], object]] = {
     int: int,
     float: float,
     bool: _BOOL_MAP.__getitem__,
+    UUID: UUID,
+    datetime: datetime.fromisoformat,
+    date: date.fromisoformat,
+    time: time.fromisoformat,
 }
 _SUPPORTED_COLLECTIONS: frozenset[type] = frozenset(
     {list, tuple, set, frozenset},
 )
-_SUPPORTED_ITEM_TYPES: frozenset[type] = frozenset({str, int, float})
 _UNION_ORIGINS: tuple[object, ...] = (
     typing.Union,  # pyright: ignore[reportDeprecated]
     types.UnionType,
@@ -102,17 +107,23 @@ def _collection_parser(
     hint: object,
 ) -> Callable[[str], object]:
     """Return string parser for collection or raise if unsupported."""
-    args = [a for a in typing.get_args(hint) if a is not Ellipsis]
+    type_args = [a for a in typing.get_args(hint) if a is not Ellipsis]
 
     # Bare collections (e.g. list, set) default element type to str
-    if not args:
+    if not type_args:
         return lambda raw: origin() if not raw else origin(raw.split(","))
 
     # Parameterized collections (e.g. list[int], tuple[str, ...])
-    if len(args) == 1 and args[0] in _SUPPORTED_ITEM_TYPES:
-        item = cast("Callable[[str], object]", args[0])
+    if (
+        len(type_args) == 1
+        and type_args[0] in _SCALAR_PARSERS
+        and type_args[0] is not bool
+    ):
+        parse_item = _SCALAR_PARSERS[type_args[0]]
         return lambda raw: (
-            origin() if not raw else origin(item(x) for x in raw.split(","))
+            origin()
+            if not raw
+            else origin(parse_item(x) for x in raw.split(","))
         )
 
     # Reject unsupported item types or heterogeneous collections
@@ -123,7 +134,7 @@ def _get_parser(hint: object) -> Callable[[str], object]:
     """Return a string parser for the type hint or raise if unsupported."""
     base = _unwrap_optional(hint)
 
-    # Fast table lookup for scalars (e.g. int, bool)
+    # Fast table lookup for scalars (e.g. int, bool, UUID, datetime)
     if base in _SCALAR_PARSERS:
         return _SCALAR_PARSERS[base]
 
@@ -152,7 +163,9 @@ def _parse_dataclass(
 
     # Argument parsing & instantiation: convert CLI values and construct model
     try:
-        kwargs = {k: parsers[k](args[k]) for k in parsers if k in args}
+        kwargs = {
+            name: parsers[name](args[name]) for name in parsers if name in args
+        }
         return target(**kwargs)
     except (ValueError, KeyError, TypeError) as exc:
         raise JobArgumentValidationError(target, exc) from exc

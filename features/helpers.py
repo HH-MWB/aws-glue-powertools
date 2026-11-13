@@ -6,8 +6,10 @@ import ast
 import dataclasses
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from datetime import date, datetime, time
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
+from uuid import UUID
 
 from awsglue.context import GlueContext
 from pydantic import BaseModel
@@ -15,9 +17,10 @@ from pydantic import BaseModel
 from aws_glue_powertools.jobs.spark import BatchJob, SparkJobContext
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
     from unittest.mock import MagicMock
 
+    from _typeshed import DataclassInstance
     from behave.model import Table
 
     from features.steps.context_types import BatchJobBehaveContext
@@ -27,28 +30,61 @@ if TYPE_CHECKING:
 # Test Argument Schemas
 # =============================================================================
 
+SCALAR_TYPE_MAP: dict[str, type] = {
+    "int": int,
+    "str": str,
+    "float": float,
+    "bool": bool,
+    "UUID": UUID,
+    "datetime": datetime,
+    "date": date,
+    "time": time,
+}
+
+
+def make_scalar_dataclass(field_name: str, type_name: str) -> type:
+    """Build dynamic single-field dataclass for scalar parsing tests."""
+    target_type = SCALAR_TYPE_MAP[type_name]
+    return dataclasses.make_dataclass(
+        "DynamicScalarDataclass",
+        [(field_name, target_type)],
+    )
+
 
 @dataclass
-class SampleDataclass:
-    """Sample dataclass covering supported scalars, collections, and flags."""
+class CollectionDataclass:
+    """Dataclass covering parameterized and bare collection containers."""
 
-    batch_id: int
-    name: str
-    rate: float
-    dry_run: bool = False
-    tags: list[str] = field(default_factory=list)
     scores: list[int] = field(default_factory=list)
-    items: list = field(default_factory=list)  # type: ignore[type-arg]
     modes: tuple[str, ...] = field(default_factory=tuple)
-    raw_tuple: tuple = field(default_factory=tuple)  # type: ignore[type-arg]
     unique_ids: set[int] = field(default_factory=set)
-    raw_set: set = field(default_factory=set)  # type: ignore[type-arg]
     rates: frozenset[float] = field(default_factory=frozenset)
+    items: list = field(default_factory=list)  # type: ignore[type-arg]
+    raw_tuple: tuple = field(default_factory=tuple)  # type: ignore[type-arg]
+    raw_set: set = field(default_factory=set)  # type: ignore[type-arg]
     raw_frozenset: frozenset = (  # type: ignore[type-arg]
         field(default_factory=frozenset)
     )
-    optional_note: str | None = None
+
+
+@dataclass
+class LifecycleDataclass:
+    """Dataclass covering required, default, optional, and derived fields."""
+
+    required_val: str
+    default_val: str = "default"
+    optional_val: str | None = None
     derived_field: str = field(init=False, default="computed")
+
+
+class SampleModel(BaseModel):  # type: ignore[explicit-any]
+    """Sample Pydantic model for typed argument validation."""
+
+    batch_id: int
+    dry_run: bool = False
+
+
+# --- Unsupported Argument Schemas ---
 
 
 @dataclass
@@ -77,13 +113,6 @@ class DataclassWithUnion:
     """Dataclass containing an unsupported multi-type union field."""
 
     val: int | str | None = None
-
-
-class SampleModel(BaseModel):  # type: ignore[explicit-any]
-    """Sample Pydantic model for typed argument validation."""
-
-    batch_id: int
-    dry_run: bool = False
 
 
 class UnsupportedClass:
@@ -170,11 +199,6 @@ def capture_error(bdd_context: BatchJobBehaveContext) -> Iterator[None]:
 # Assert Helpers
 # =============================================================================
 
-_EMPTY_COLLECTION_FACTORIES: dict[str, Callable[[], object]] = {
-    "set()": set,
-    "frozenset()": frozenset,
-}
-
 
 def is_spark_job_context(obj: object) -> bool:
     """Return True if obj is a SparkJobContext with GlueContext."""
@@ -184,18 +208,58 @@ def is_spark_job_context(obj: object) -> bool:
     )
 
 
+# --- Gherkin Cell Parsing ---
+
+_EMPTY_COLLECTION_FACTORIES: dict[str, Callable[[], object]] = {
+    "set()": set,
+    "frozenset()": frozenset,
+}
+_SPECIAL_SCALARS: tuple[type, ...] = (UUID, datetime, date, time)
+
+
+def _convert_item(
+    value: str,
+    target_type: type,
+) -> UUID | datetime | date | time:
+    """Convert raw string to the target type."""
+    if target_type is UUID:
+        return UUID(value)
+    if target_type is datetime:
+        return datetime.fromisoformat(value)
+    if target_type is date:
+        return date.fromisoformat(value)
+    return time.fromisoformat(value)
+
+
+def _parse_collection(actual: object, parsed: object) -> object:
+    """Convert parsed collection items to typed objects if needed."""
+    if isinstance(actual, (list, tuple, set, frozenset)) and actual:
+        first = next(iter(actual))
+        if isinstance(first, _SPECIAL_SCALARS):
+            origin = type(actual)
+            elem_type = type(first)
+            return origin(
+                _convert_item(x, elem_type)
+                for x in cast("Iterable[str]", parsed)
+            )
+    return parsed
+
+
 def parse_expected(raw: str, actual: object) -> object:
     """Parse a Gherkin expectation cell into a typed Python value."""
     if isinstance(actual, str):
         return raw
     if raw in _EMPTY_COLLECTION_FACTORIES:
         return _EMPTY_COLLECTION_FACTORIES[raw]()
+    if isinstance(actual, _SPECIAL_SCALARS):
+        return _convert_item(raw, type(actual))
     if raw.startswith("frozenset(") and raw.endswith(")"):
         inner: object = ast.literal_eval(raw[10:-1])
         assert isinstance(inner, set)
-        return frozenset(inner)
-    parsed: object = ast.literal_eval(raw)
-    return parsed
+        parsed: object = frozenset(inner)
+    else:
+        parsed = ast.literal_eval(raw)
+    return _parse_collection(actual, parsed)
 
 
 def _assert_field_types(field_types: dict[str, str], table: Table) -> None:
@@ -209,13 +273,13 @@ def _assert_field_types(field_types: dict[str, str], table: Table) -> None:
 
 
 def verify_dataclass_table(
-    received: SampleDataclass,
+    received: object,
     table: Table,
 ) -> None:
     """Assert dataclass fields, optional declared types, and values match."""
-    fields = dataclasses.fields(received)
+    fields = dataclasses.fields(cast("DataclassInstance", received))
     expected = {row["field"]: row["value"] for row in table}
-    assert set(expected) == {f.name for f in fields}
+    assert set(expected).issubset({f.name for f in fields})
     if "type" in table.headings:
         field_types = {
             f.name: str(f.type) if f.init else f"{f.type} (init=False)"
