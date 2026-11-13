@@ -8,7 +8,7 @@ build-backend = "uv_build"
 
 [project]
 name = "aws-glue-powertools"
-version = "0.1.0"
+version = "0.2.0"
 description = "Powertools for AWS Glue is a developer toolkit to implement best practices and increase developer velocity."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,6 +39,11 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+pydantic = [
+  "pydantic>=2.0",
+]
+
 [project.urls]
 Repository = "https://github.com/HH-MWB/aws-glue-powertools"
 Issues = "https://github.com/HH-MWB/aws-glue-powertools/issues"
@@ -51,7 +56,9 @@ dev = [
 ]
 test = [
   "behave",
+  "boto3>=1.43.126",
   "coverage",
+  "pydantic>=2.0",
 ]
 
 # ============================================================================
@@ -88,6 +95,7 @@ max-complexity = 5
 ]
 "stubs/**" = [
   "N802", # Stubs mirror upstream Glue names (e.g. getResolvedOptions)
+  "N803", # Stubs mirror upstream AWS names (e.g. JobName, RunId)
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -150,8 +158,6 @@ disallow_untyped_decorators = false
 
 [tool.pyright]
 pythonVersion = "3.11"
-venvPath = "."
-venv = ".venv"
 
 include = ["src"]
 exclude = ["features"]
@@ -181,7 +187,7 @@ reportUnusedCallResult = "error"
 # ============================================================================
 
 [tool.bandit]
-exclude_dirs = ["features"]
+exclude_dirs = ["docs", "features"]
 
 [tool.bandit.try_except_pass]
 check_typed_exception = true

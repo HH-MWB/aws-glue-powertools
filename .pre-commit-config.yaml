@@ -29,7 +29,7 @@ repos:
   # Environment & Lockfile Consistency
   # -------------------------------------------------------------------------
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.13.6
+    rev: 0.13.7
     hooks:
       - id: uv-lock
 
@@ -37,7 +37,7 @@ repos:
   # Code Formatting & Linting (Python)
   # -------------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+    rev: v0.17.4
     hooks:
       - id: ruff-check
         args: [--exit-non-zero-on-fix]
@@ -81,11 +81,13 @@ repos:
     rev: v1.1.414
     hooks:
       - id: pyright
+        additional_dependencies: ["pydantic>=2.0"]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.4.1
     hooks:
       - id: mypy
+        additional_dependencies: ["pydantic>=2.0"]
 
   # -------------------------------------------------------------------------
   # Security Analysis & SAST
@@ -98,7 +100,7 @@ repos:
         additional_dependencies: ["bandit[toml]"]
 
   - repo: https://github.com/semgrep/pre-commit
-    rev: v1.183.0
+    rev: v1.185.0
     hooks:
       - id: semgrep
         args: ["--config", "p/python", "--error"]
